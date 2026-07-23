@@ -172,6 +172,10 @@
         </label>
       </div>
     </details>
+    <details class="settings">
+      <summary>장소 분류 관리 — 분류·권역이 틀린 곳 바로 수정</summary>
+      <div id="placeList" style="padding:8px 12px;max-height:300px;overflow-y:auto"></div>
+    </details>
     <div class="searchRow">
       <input list="placeNames" id="pinSearch" placeholder="🔍 장소 검색 (없으면 새로 추가)">
       <select id="newCat"><option>관광</option><option>식당</option><option>카페</option><option>숙소</option></select>
@@ -450,7 +454,36 @@ function refreshCustom() {
       bans.map(p => `<span class="chip gray" data-focus="${p.id}">${p.name}<button class="x" data-unban="${p.id}" title="다시 가기">✕</button></span>`).join("") +
       `</div>` : "") +
     (deleted.size ? `<div class="chipRow"><span class="chip gray" id="restoreDel">삭제한 기본 장소 ${deleted.size}곳 복원 ↩</span></div>` : "");
+  refreshPlaceList();
 }
+// 전체 장소 목록: 분류/권역 인라인 수정
+function refreshPlaceList() {
+  const order = { 관광: 0, 식당: 1, 카페: 2 };
+  document.getElementById("placeList").innerHTML = [...PLACES]
+    .sort((a, b) => (order[a.cat] - order[b.cat]) || a.name.localeCompare(b.name, "ko"))
+    .map(p => `
+      <div style="display:flex;gap:6px;align-items:center;padding:3px 0;font-size:13px">
+        <span style="flex:none;width:10px;height:10px;border-radius:50%;background:${CAT_COLOR[p.cat]}"></span>
+        <span data-focus="${p.id}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="${p.name}">${p.name}</span>
+        <select data-cat="${p.id}" style="padding:3px 4px;font-size:12px">${["관광", "식당", "카페"].map(c => `<option${c === p.cat ? " selected" : ""}>${c}</option>`).join("")}</select>
+        <select data-reg="${p.id}" style="padding:3px 4px;font-size:12px">${["동부", "서부", "남부", "시내"].map(r => `<option${r === p.region ? " selected" : ""}>${r}</option>`).join("")}</select>
+      </div>`).join("");
+}
+document.getElementById("placeList").addEventListener("change", e => {
+  const sel = e.target.closest("[data-cat],[data-reg]");
+  if (!sel) return;
+  const p = byId(sel.dataset.cat || sel.dataset.reg);
+  if (sel.dataset.cat) p.cat = sel.value; else p.region = sel.value;
+  if (!p.custom) overrides[p.id] = { ...overrides[p.id], name: p.name, cat: p.cat, cost: p.cost, region: p.region };
+  persistPlaces();
+  markers[p.id].setStyle(pinStyle(p)).setTooltipContent(`${p.name} (${p.cat})`);
+  refreshPlaceList();
+});
+document.getElementById("placeList").addEventListener("click", e => {
+  const s = e.target.closest("[data-focus]");
+  if (s) { const p = byId(s.dataset.focus); map.setView([p.lat, p.lng], 12); markers[p.id].openTooltip(); }
+});
+
 function togglePin(p) {
   pinned.has(p.id) ? pinned.delete(p.id) : pinned.add(p.id);
   markers[p.id].setStyle(pinStyle(p));
@@ -475,7 +508,7 @@ function editForm(p) {
     p.name = div.querySelector("#eName").value.trim() || p.name;
     p.cat = div.querySelector("#eCat").value;
     p.cost = +div.querySelector("#eCost").value || 0;
-    if (!p.custom) overrides[p.id] = { name: p.name, cat: p.cat, cost: p.cost };
+    if (!p.custom) overrides[p.id] = { ...overrides[p.id], name: p.name, cat: p.cat, cost: p.cost };
     persistPlaces();
     markers[p.id].setStyle(pinStyle(p)).setTooltipContent(`${p.name} (${p.cat})`);
     datalistRefresh(); refreshPins(); refreshCustom();
