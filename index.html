@@ -8,12 +8,12 @@
 <style>
   * { box-sizing: border-box; margin: 0; }
   body { font-family: "Pretendard", "Malgun Gothic", sans-serif; background: #f4f6f8; color: #1c2733; }
-  header { padding: 16px 20px; background: #fff; border-bottom: 1px solid #e3e8ee; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  header { padding: 12px 20px; background: #fff; border-bottom: 1px solid #e3e8ee; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   header h1 { font-size: 18px; margin-right: auto; }
-  select, button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #cfd8e0; background: #fff; }
+  select, button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid #cfd8e0; background: #fff; }
   button#roll { background: #ff6b35; color: #fff; border: none; cursor: pointer; font-weight: 700; }
   button#roll:hover { background: #e85a26; }
-  #wrap { display: flex; height: calc(100vh - 61px); }
+  #wrap { display: flex; height: calc(100vh - 57px); }
   #map { flex: 1; }
   #panel { width: 360px; overflow-y: auto; background: #fff; border-left: 1px solid #e3e8ee; padding: 16px; }
   #panel h2 { font-size: 15px; margin-bottom: 10px; }
@@ -24,6 +24,10 @@
   .stop .role { color: #ff6b35; font-weight: 700; }
   .stop .leg { color: #6b7a89; font-size: 12px; }
   .total { margin-top: 12px; font-size: 14px; font-weight: 700; }
+  #cost { margin-top: 8px; font-size: 13px; background: #f4f6f8; border-radius: 8px; padding: 10px 12px; line-height: 1.7; }
+  #cost b { float: right; }
+  #pins { margin: 6px 0; font-size: 12px; }
+  .pinchip { display: inline-block; background: #fff3ec; color: #e85a26; border: 1px solid #ffd0bb; border-radius: 99px; padding: 2px 8px; margin: 2px; }
   .note { margin-top: 12px; font-size: 12px; color: #6b7a89; line-height: 1.5; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; background: #eef2f5; font-size: 12px; font-weight: 700; }
   @media (max-width: 700px) { #wrap { flex-direction: column; } #panel { width: 100%; height: 45%; } }
@@ -32,9 +36,7 @@
 <body>
 <header>
   <h1>제주 하루 코스 뽑기 🎲</h1>
-  <label>숙소:
-    <select id="hotel"></select>
-  </label>
+  <label>숙소: <select id="hotel"></select></label>
   <label>권역:
     <select id="region">
       <option value="random">랜덤</option>
@@ -43,72 +45,79 @@
       <option value="남부">남부</option>
     </select>
   </label>
+  <label>인원: <select id="people"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>명</label>
   <button id="roll">오늘의 코스 뽑기</button>
 </header>
 <div id="wrap">
   <div id="map"></div>
   <div id="panel">
     <h2>코스 <span class="badge" id="regionBadge"></span></h2>
-    <div id="stops">숙소 고르고 버튼을 눌러봐.</div>
+    <div id="pins"></div>
+    <div id="stops">지도 점 클릭 = 📌 무조건 포함 · 버튼으로 코스 생성.</div>
     <div class="total" id="total"></div>
+    <div id="cost" hidden></div>
     <div class="note">08:30 출발 기준. 아침은 일통이반(아침 물회, 숙소 전부 차 5~10분),
-    하루에 한 권역(동부/서부/남부)만 돌고 점심은 권역 안에서, 저녁은 복귀 길 시내 식당.
-    체류시간: 식사 60분 · 카페 45분 · 관광 75분.
-    거리·시간은 OSRM 실제 도로 경로 기준 (경로선도 실제 도로).
-    우도·마라도는 배 타야 해서 자동 코스에선 제외.</div>
+    하루에 한 권역(동부/서부/남부)만 돌고 점심은 권역 안, 저녁은 복귀 길 시내 식당.
+    📌 찍은 장소는 권역과 무관하게 무조건 코스에 들어감 (권역도 📌 다수결로 따라감).
+    체류(밥·구경 시간): 식사 60분 · 카페 45분 · 관광 75분 · 우도 3시간30분 · 마라도 2시간30분(배 왕복 포함).
+    우도는 성산항, 마라도는 운진항까지 차로 가서 배 타는 걸로 계산.
+    거리·시간은 OSRM 실제 도로 기준, 비용은 근사치라 참고용.</div>
   </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// 숙소 후보: 일통이반(33.5107,126.4847) 근처
+// 숙소 후보: 일통이반(33.5107,126.4847) 근처. price = 1박 대략(원)
 const HOTELS = [
-  { name: "아모렉스리조트 (도두, 서해안로 216)", lat: 33.5075, lng: 126.4703 },
-  { name: "라마다 프라자 제주 (탑동)",        lat: 33.5155, lng: 126.5209 },
-  { name: "오션스위츠 제주 (탑동)",           lat: 33.5165, lng: 126.5250 },
-  { name: "메종 글래드 제주 (연동)",          lat: 33.4886, lng: 126.4923 },
-  { name: "그랜드 하얏트 제주 (노형)",        lat: 33.4849, lng: 126.4913 },
+  { name: "아모렉스리조트 (도두, 서해안로 216)", lat: 33.5075, lng: 126.4703, price: 80000 },
+  { name: "라마다 프라자 제주 (탑동)",        lat: 33.5155, lng: 126.5209, price: 150000 },
+  { name: "오션스위츠 제주 (탑동)",           lat: 33.5165, lng: 126.5250, price: 130000 },
+  { name: "메종 글래드 제주 (연동)",          lat: 33.4886, lng: 126.4923, price: 140000 },
+  { name: "그랜드 하얏트 제주 (노형)",        lat: 33.4849, lng: 126.4913, price: 250000 },
 ];
 
-// 공유 목록 장소들. 좌표는 근사치 — 실제 내비는 카카오내비로.
+// 공유 목록 장소들. 좌표·비용(1인, 원)은 근사치 — 실제 내비는 카카오내비로.
 // region: 동부/서부/남부/시내. 시내는 아침·저녁 식당 풀로만 사용.
 const PLACES = [
   // 식당
-  { name: "미영이네 (고등어회)",      cat: "식당", region: "남부", lat: 33.2165, lng: 126.2500 },
-  { name: "갯동산 평대바당국수",      cat: "식당", region: "동부", lat: 33.5386, lng: 126.8410 },
-  { name: "돈사돈 본점 (흑돼지)",     cat: "식당", region: "시내", lat: 33.4830, lng: 126.4740 },
-  { name: "이재모피자",               cat: "식당", region: "시내", lat: 33.5127, lng: 126.5215 },
-  { name: "키친아루요 (해물 일식)",   cat: "식당", region: "서부", lat: 33.4650, lng: 126.4100 },
-  { name: "일통이반 (아침 물회)",     cat: "식당", region: "시내", lat: 33.5107, lng: 126.4847, breakfast: true },
-  { name: "제주 호커센터 (칠리크랩)", cat: "식당", region: "시내", lat: 33.5050, lng: 126.4300 },
-  { name: "맘마리아 (파스타)",        cat: "식당", region: "시내", lat: 33.4900, lng: 126.4100 },
-  { name: "세화 피크닉 (피자)",       cat: "식당", region: "동부", lat: 33.5250, lng: 126.8600 },
-  { name: "오설록 티 뮤지엄",         cat: "식당", region: "남부", lat: 33.3060, lng: 126.2890 },
+  { name: "미영이네 (고등어회)",      cat: "식당", region: "남부", lat: 33.2165, lng: 126.2500, cost: 30000 },
+  { name: "갯동산 평대바당국수",      cat: "식당", region: "동부", lat: 33.5386, lng: 126.8410, cost: 12000 },
+  { name: "돈사돈 본점 (흑돼지)",     cat: "식당", region: "시내", lat: 33.4830, lng: 126.4740, cost: 25000 },
+  { name: "이재모피자",               cat: "식당", region: "시내", lat: 33.5127, lng: 126.5215, cost: 15000 },
+  { name: "키친아루요 (해물 일식)",   cat: "식당", region: "서부", lat: 33.4650, lng: 126.4100, cost: 20000 },
+  { name: "일통이반 (아침 물회)",     cat: "식당", region: "시내", lat: 33.5107, lng: 126.4847, cost: 15000, breakfast: true },
+  { name: "제주 호커센터 (칠리크랩)", cat: "식당", region: "시내", lat: 33.5050, lng: 126.4300, cost: 25000 },
+  { name: "맘마리아 (파스타)",        cat: "식당", region: "시내", lat: 33.4900, lng: 126.4100, cost: 18000 },
+  { name: "세화 피크닉 (피자)",       cat: "식당", region: "동부", lat: 33.5250, lng: 126.8600, cost: 15000 },
+  { name: "오설록 티 뮤지엄",         cat: "식당", region: "남부", lat: 33.3060, lng: 126.2890, cost: 10000 },
   // 카페/술집
-  { name: "카페청굴물 (김녕)",        cat: "카페", region: "동부", lat: 33.5580, lng: 126.7580 },
-  { name: "우유부단 (이시돌 목장)",   cat: "카페", region: "서부", lat: 33.3618, lng: 126.3222 },
-  { name: "더클리프 (중문)",          cat: "카페", region: "남부", lat: 33.2450, lng: 126.4090 },
-  { name: "카페카노푸스 (망고빙수)",  cat: "카페", region: "남부", lat: 33.2445, lng: 126.4040 },
-  { name: "내도음악상가 (와인바)",    cat: "카페", region: "시내", lat: 33.4920, lng: 126.4320 },
-  { name: "맥파이 브루어리",          cat: "카페", region: "시내", lat: 33.4940, lng: 126.5850 },
+  { name: "카페청굴물 (김녕)",        cat: "카페", region: "동부", lat: 33.5580, lng: 126.7580, cost: 8000 },
+  { name: "우유부단 (이시돌 목장)",   cat: "카페", region: "서부", lat: 33.3618, lng: 126.3222, cost: 6000 },
+  { name: "더클리프 (중문)",          cat: "카페", region: "남부", lat: 33.2450, lng: 126.4090, cost: 10000 },
+  { name: "카페카노푸스 (망고빙수)",  cat: "카페", region: "남부", lat: 33.2445, lng: 126.4040, cost: 12000 },
+  { name: "내도음악상가 (와인바)",    cat: "카페", region: "시내", lat: 33.4920, lng: 126.4320, cost: 15000 },
+  { name: "맥파이 브루어리",          cat: "카페", region: "시내", lat: 33.4940, lng: 126.5850, cost: 12000 },
   // 관광
-  { name: "도두봉",                   cat: "관광", region: "시내", lat: 33.5080, lng: 126.4670 },
-  { name: "이호테우해변",             cat: "관광", region: "시내", lat: 33.4970, lng: 126.4530 },
-  { name: "서우봉 (함덕)",            cat: "관광", region: "동부", lat: 33.5430, lng: 126.6730 },
-  { name: "사려니숲길",               cat: "관광", region: "동부", lat: 33.4180, lng: 126.6850 },
-  { name: "비자림",                   cat: "관광", region: "동부", lat: 33.4890, lng: 126.8100 },
-  { name: "행원해변 (코난해변)",      cat: "관광", region: "동부", lat: 33.5560, lng: 126.8080 },
-  { name: "오저여",                   cat: "관광", region: "동부", lat: 33.5450, lng: 126.8270 },
-  { name: "섭지코지",                 cat: "관광", region: "동부", lat: 33.4240, lng: 126.9310 },
-  { name: "성산포 성당",              cat: "관광", region: "동부", lat: 33.4630, lng: 126.9350 },
-  { name: "카멜리아 힐",              cat: "관광", region: "남부", lat: 33.2890, lng: 126.3680 },
-  { name: "중문향토오일시장",         cat: "관광", region: "남부", lat: 33.2500, lng: 126.4190 },
-  { name: "중문해변",                 cat: "관광", region: "남부", lat: 33.2450, lng: 126.4120 },
-  { name: "애월 (한담해변)",          cat: "관광", region: "서부", lat: 33.4640, lng: 126.3100 },
-  { name: "금오름",                   cat: "관광", region: "서부", lat: 33.3520, lng: 126.3050 },
-  { name: "성 이시돌 피정의집",       cat: "관광", region: "서부", lat: 33.3600, lng: 126.3250 },
-  { name: "9.81 파크",                cat: "관광", region: "서부", lat: 33.4280, lng: 126.3410 },
-  { name: "송악산",                   cat: "관광", region: "남부", lat: 33.2000, lng: 126.2900 },
+  { name: "도두봉",                   cat: "관광", region: "시내", lat: 33.5080, lng: 126.4670, cost: 0 },
+  { name: "이호테우해변",             cat: "관광", region: "시내", lat: 33.4970, lng: 126.4530, cost: 0 },
+  { name: "서우봉 (함덕)",            cat: "관광", region: "동부", lat: 33.5430, lng: 126.6730, cost: 0 },
+  { name: "사려니숲길",               cat: "관광", region: "동부", lat: 33.4180, lng: 126.6850, cost: 0 },
+  { name: "비자림",                   cat: "관광", region: "동부", lat: 33.4890, lng: 126.8100, cost: 3000 },
+  { name: "행원해변 (코난해변)",      cat: "관광", region: "동부", lat: 33.5560, lng: 126.8080, cost: 0 },
+  { name: "오저여",                   cat: "관광", region: "동부", lat: 33.5450, lng: 126.8270, cost: 0 },
+  { name: "섭지코지",                 cat: "관광", region: "동부", lat: 33.4240, lng: 126.9310, cost: 0 },
+  { name: "성산포 성당",              cat: "관광", region: "동부", lat: 33.4630, lng: 126.9350, cost: 0 },
+  { name: "카멜리아 힐",              cat: "관광", region: "남부", lat: 33.2890, lng: 126.3680, cost: 10000 },
+  { name: "중문향토오일시장",         cat: "관광", region: "남부", lat: 33.2500, lng: 126.4190, cost: 0 },
+  { name: "중문해변",                 cat: "관광", region: "남부", lat: 33.2450, lng: 126.4120, cost: 0 },
+  { name: "애월 (한담해변)",          cat: "관광", region: "서부", lat: 33.4640, lng: 126.3100, cost: 0 },
+  { name: "금오름",                   cat: "관광", region: "서부", lat: 33.3520, lng: 126.3050, cost: 0 },
+  { name: "성 이시돌 피정의집",       cat: "관광", region: "서부", lat: 33.3600, lng: 126.3250, cost: 0 },
+  { name: "9.81 파크",                cat: "관광", region: "서부", lat: 33.4280, lng: 126.3410, cost: 40000 },
+  { name: "송악산",                   cat: "관광", region: "남부", lat: 33.2000, lng: 126.2900, cost: 0 },
+  // 섬: 좌표는 배 타는 선착장 기준, stay는 배 왕복+구경 포함, cost는 배삯 왕복
+  { name: "우도 (성산항서 배 15분)",   cat: "관광", region: "동부", lat: 33.4740, lng: 126.9360, cost: 11000, stay: 210 },
+  { name: "마라도 (운진항서 배 30분)", cat: "관광", region: "남부", lat: 33.2145, lng: 126.2530, cost: 21000, stay: 150 },
 ];
 
 const R = 6371;
@@ -119,7 +128,7 @@ function dist(a, b) { // haversine, km — 정렬용
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-// ponytail: 방문 순서는 직선거리 최근접 이웃 정렬 (지점 7~8개엔 충분).
+// ponytail: 방문 순서는 직선거리 최근접 이웃 정렬 (지점 7~10개엔 충분).
 // 실제 도로 거리/경로는 아래 OSRM이 계산.
 function nearestOrder(start, pts) {
   const rest = [...pts], order = [];
@@ -138,26 +147,39 @@ function sample(arr, n) {
   return out;
 }
 
-// 아침(시내) → 오전 관광 2 → 점심(권역) → 오후 관광 1 + 카페 → 저녁(시내) → 숙소.
-// 순서 자체가 시간대를 보장하니 별도 스케줄링 불필요.
-function rollCourse(hotel, regionPick) {
-  const region = regionPick === "random" ? sample(["동부", "서부", "남부"], 1)[0] : regionPick;
-  const inR = c => PLACES.filter(p => p.region === region && p.cat === c);
+const mode = arr => [...new Set(arr)].sort((a, b) =>
+  arr.filter(x => x === b).length - arr.filter(x => x === a).length)[0];
+
+// 아침(시내) → 오전 관광 → 점심(권역) → 오후 관광+카페 → 저녁(시내) → 숙소.
+// 📌(pinned)은 무조건 포함, 권역은 📌 다수결 > 선택값 > 랜덤.
+function rollCourse(hotel, regionPick, pinned) {
+  const pin = PLACES.filter(p => pinned.has(p.name));
+  const pinRegions = pin.filter(p => p.region !== "시내").map(p => p.region);
+  const region = regionPick !== "random" ? regionPick
+    : pinRegions.length ? mode(pinRegions)
+    : sample(["동부", "서부", "남부"], 1)[0];
+  const inR = c => PLACES.filter(p => p.region === region && p.cat === c && !pinned.has(p.name));
 
   const breakfast = PLACES.find(p => p.breakfast);
-  const spots = sample(inR("관광"), 3);
-  const [cafe] = sample(inR("카페"), 1);
-  const [lunch] = sample(inR("식당"), 1);
-  const [dinner] = sample(PLACES.filter(p => p.region === "시내" && p.cat === "식당" && !p.breakfast), 1);
+  const pinSpots = pin.filter(p => p.cat === "관광");
+  const spots = [...pinSpots, ...sample(inR("관광"), Math.max(0, 3 - pinSpots.length))];
+  const pinCafes = pin.filter(p => p.cat === "카페" && p.region !== "시내");
+  const cafes = pinCafes.length ? pinCafes : sample(inR("카페"), 1);
+  const pinFood = pin.filter(p => p.cat === "식당" && p.region !== "시내" && !p.breakfast);
+  const lunch = pinFood[0] || sample(inR("식당"), 1)[0];
+  const dinner = pin.find(p => p.cat === "식당" && p.region === "시내" && !p.breakfast)
+    || sample(PLACES.filter(p => p.region === "시내" && p.cat === "식당" && !p.breakfast), 1)[0];
+  const cityEvening = pin.filter(p => p.cat === "카페" && p.region === "시내"); // 맥파이 등: 저녁 전에
 
   const morning = nearestOrder(breakfast, spots.slice(0, 2));
-  const afternoon = nearestOrder(lunch, [...spots.slice(2), cafe].filter(Boolean));
+  const afternoon = nearestOrder(lunch, [...spots.slice(2), ...pinFood.slice(1), ...cafes].filter(Boolean));
 
   const route = [hotel,
     { ...breakfast, role: "아침" },
     ...morning,
     { ...lunch, role: "점심" },
     ...afternoon,
+    ...cityEvening,
     { ...dinner, role: "저녁" },
     hotel];
   return { region, route };
@@ -177,16 +199,42 @@ async function roadRoute(route) {
 const map = L.map("map").setView([33.38, 126.55], 10);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
   { attribution: "&copy; OpenStreetMap" }).addTo(map);
-let layer = L.layerGroup().addTo(map);
+const baseLayer = L.layerGroup().addTo(map); // 저장 장소 전체(상시)
+let routeLayer = L.layerGroup().addTo(map);
 
 const sel = document.getElementById("hotel");
 HOTELS.forEach((h, i) => sel.add(new Option(h.name, i)));
 
+// 전체 장소 상시 표시 + 클릭으로 📌 토글
+const pinned = new Set();
+const CAT_COLOR = { 관광: "#1c2733", 식당: "#e85a26", 카페: "#b06ab3" };
+function pinStyle(p) {
+  const on = pinned.has(p.name);
+  return { radius: on ? 9 : 5, color: on ? "#d4a017" : "#fff", weight: on ? 3 : 1.5,
+           fillColor: CAT_COLOR[p.cat], fillOpacity: .9 };
+}
+function refreshPins() {
+  document.getElementById("pins").innerHTML = pinned.size
+    ? "📌 " + [...pinned].map(n => `<span class="pinchip">${n}</span>`).join("")
+    : "";
+}
+PLACES.forEach(p => {
+  const m = L.circleMarker([p.lat, p.lng], pinStyle(p)).addTo(baseLayer)
+    .bindTooltip(`${p.name} (${p.cat})`, { direction: "top" });
+  m.on("click", () => {
+    pinned.has(p.name) ? pinned.delete(p.name) : pinned.add(p.name);
+    m.setStyle(pinStyle(p));
+    refreshPins();
+  });
+});
+
 const STAY = { 아침: 45, 점심: 60, 저녁: 60, 카페: 45, 관광: 75 };
+const stayOf = p => p.stay || STAY[p.role || p.cat] || 60;
 const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m) % 60).padStart(2, "0")}`;
+const won = n => n.toLocaleString("ko-KR") + "원";
 
 async function render(region, route) {
-  layer.clearLayers();
+  routeLayer.clearLayers();
   document.getElementById("regionBadge").textContent = region;
   const stopsEl = document.getElementById("stops");
   stopsEl.innerHTML = "";
@@ -205,7 +253,7 @@ async function render(region, route) {
              border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${isHotel ? "🏨" : i}</div>`,
       className: "", iconSize: [26, 26], iconAnchor: [13, 13],
     });
-    L.marker([p.lat, p.lng], { icon }).bindPopup(p.name).addTo(layer);
+    L.marker([p.lat, p.lng], { icon }).bindPopup(p.name).addTo(routeLayer);
 
     let legHtml = "";
     if (i > 0) {
@@ -221,9 +269,11 @@ async function render(region, route) {
       legHtml = `<div class="leg">↳ 🚗 ${km.toFixed(1)}km · 약 ${Math.round(min)}분</div>`;
     }
     const arrive = clock;
-    if (!isHotel) clock += STAY[p.role || p.cat] || 60;
+    if (!isHotel) clock += stayOf(p);
 
-    const label = `${p.role ? `<span class="role">${p.role}</span> · ` : ""}${p.name}${!p.role && p.cat ? ` <small>(${p.cat})</small>` : ""}`;
+    const pinMark = pinned.has(p.name) ? "📌 " : "";
+    const label = `${p.role ? `<span class="role">${p.role}</span> · ` : ""}${pinMark}${p.name}${!p.role && p.cat ? ` <small>(${p.cat})</small>` : ""}` +
+      (isHotel ? "" : ` <small style="color:#6b7a89">· ${stayOf(p)}분</small>`);
     const div = document.createElement("div");
     div.className = "stop";
     div.innerHTML = `<div class="no ${isMeal ? "meal" : ""}">${isHotel ? "🏨" : i}</div>
@@ -232,18 +282,33 @@ async function render(region, route) {
   });
 
   if (road) {
-    L.geoJSON(road.geometry, { style: { color: "#ff6b35", weight: 4, opacity: .85 } }).addTo(layer);
+    L.geoJSON(road.geometry, { style: { color: "#ff6b35", weight: 4, opacity: .85 } }).addTo(routeLayer);
   } else {
     L.polyline(route.map(p => [p.lat, p.lng]),
-      { color: "#ff6b35", weight: 3, dashArray: "6 8" }).addTo(layer);
+      { color: "#ff6b35", weight: 3, dashArray: "6 8" }).addTo(routeLayer);
   }
   map.fitBounds(route.map(p => [p.lat, p.lng]), { padding: [40, 40] });
   document.getElementById("total").textContent =
     `총 이동 ${totalKm.toFixed(0)}km · 숙소 복귀 ${hhmm(clock)}${road ? "" : " (직선거리 추정)"}`;
+
+  // 대략 비용: (식비·입장료·배삯)/인 × 인원 + 렌터카 + 유류비(≈160원/km) + 숙박 1박
+  const people = +document.getElementById("people").value;
+  const perPerson = route.reduce((s, p) => s + (p.cost || 0), 0);
+  const fuel = Math.round(totalKm * 160 / 100) * 100;
+  const RENTAL = 80000; // 준중형 8월 성수기 1일 대략
+  const hotel = HOTELS[+sel.value];
+  const costEl = document.getElementById("cost");
+  costEl.hidden = false;
+  costEl.innerHTML =
+    `식비·입장료·배삯 ${won(perPerson)}/인 × ${people}명 <b>${won(perPerson * people)}</b><br>` +
+    `렌터카 1일 <b>≈ ${won(RENTAL)}</b><br>` +
+    `유류비 (${totalKm.toFixed(0)}km) <b>≈ ${won(fuel)}</b><br>` +
+    `숙박 1박 (${hotel.name.split(" (")[0]}) <b>≈ ${won(hotel.price)}</b><br>` +
+    `<span style="font-weight:700">하루 총 예상</span> <b style="font-weight:700">≈ ${won(perPerson * people + RENTAL + fuel + hotel.price)}</b>`;
 }
 
 document.getElementById("roll").onclick = () => {
-  const { region, route } = rollCourse(HOTELS[+sel.value], document.getElementById("region").value);
+  const { region, route } = rollCourse(HOTELS[+sel.value], document.getElementById("region").value, pinned);
   render(region, route);
 };
 </script>
