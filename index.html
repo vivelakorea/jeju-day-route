@@ -138,6 +138,13 @@
         <label>끝 시각 <input type="time" id="end" value="21:00"></label>
         <label>시작점 <select id="startPt"><option>숙소</option><option>공항</option></select></label>
         <label>끝점 <select id="endPt"><option>숙소</option><option>공항</option></select></label>
+        <label class="wide">공유 방 코드 — 코드를 아는 사람끼리 장소 목록이 공유돼요
+          <span style="display:flex;gap:6px">
+            <input id="roomCode" placeholder="비우면 이 기기에만 저장" style="flex:1;min-width:0">
+            <button id="roomApply" type="button">적용</button>
+            <button id="roomNew" type="button">새 방</button>
+          </span>
+        </label>
       </div>
     </details>
     <div class="searchRow">
@@ -157,7 +164,9 @@
     📌 찍은 장소는 권역과 무관하게 무조건 코스에 들어감 (권역도 📌 다수결로 따라감).
     체류(밥·구경 시간): 식사 60분 · 카페 45분 · 관광 75분 · 우도 3시간30분 · 마라도 2시간30분(배 왕복 포함).
     우도는 성산항, 마라도는 운진항까지 차로 가서 배 타는 걸로 계산.
-    거리·시간은 OSRM 실제 도로 기준, 비용은 근사치라 참고용. 수정·추가·삭제는 이 브라우저에 저장됨.</div>
+    거리·시간은 OSRM 실제 도로 기준, 비용은 근사치라 참고용.
+    설정에서 방 코드를 만들면 장소 수정·추가·삭제가 코드를 아는 사람끼리 공유돼요 — 주소창 링크를 그대로 보내면 친구도 같은 방.
+    코드가 없으면 이 브라우저에만 저장.</div>
   </div>
 </div>
 
@@ -215,10 +224,47 @@ const BASE_PLACES = [
 const AIRPORT = { name: "제주국제공항", lat: 33.5066, lng: 126.4927 };
 
 // ===== CRUD 저장 (localStorage) =====
-const store = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const store = (k, v) => { localStorage.setItem(k, JSON.stringify(v)); if (typeof cloudSave === "function") cloudSave(); };
 const load = (k, d) => JSON.parse(localStorage.getItem(k) || JSON.stringify(d));
 const K = { custom: "jeju-custom-places", customHotel: "jeju-custom-hotels",
             over: "jeju-overrides", del: "jeju-deleted", hotelPrice: "jeju-hotel-prices" };
+
+// ===== 공유 방: Firebase RTDB (방 코드를 아는 사람끼리만 공유) =====
+const DB = "https://jeju-trip-c2ccd-default-rtdb.asia-southeast1.firebasedatabase.app";
+const SYNC_KEYS = [K.custom, K.customHotel, K.over, K.del, K.hotelPrice];
+let room = new URLSearchParams(location.search).get("room") || localStorage.getItem("jeju-room") || "";
+if (room) { localStorage.setItem("jeju-room", room); history.replaceState(null, "", "?room=" + room); }
+
+const snapshot = () => {
+  const o = {};
+  SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v && v !== "[]" && v !== "{}") o[k.replace(/[.#$/\[\]]/g, "_")] = JSON.parse(v); });
+  return o;
+};
+let saveTimer;
+function cloudSave() {
+  if (!room) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() =>
+    fetch(`${DB}/rooms/${room}.json`, { method: "PUT", body: JSON.stringify(snapshot()) }).catch(() => {}), 800);
+}
+// 시작 시 방 데이터 내려받기. 탭당 1회만 reload해서 무한루프 방지.
+(async () => {
+  if (!room) return;
+  try {
+    const remote = await (await fetch(`${DB}/rooms/${room}.json`)).json();
+    if (remote === null) { cloudSave(); return; }
+    let changed = false;
+    SYNC_KEYS.forEach(k => {
+      const v = remote[k.replace(/[.#$/\[\]]/g, "_")];
+      const s = v === undefined ? null : JSON.stringify(v);
+      if (s !== localStorage.getItem(k)) {
+        changed = true;
+        s === null ? localStorage.removeItem(k) : localStorage.setItem(k, s);
+      }
+    });
+    if (changed) location.reload(); // 원격과 같아진 뒤엔 다시 안 돎
+  } catch {}
+})();
 
 const deleted = new Set(load(K.del, []));
 const overrides = load(K.over, {});           // id → {name, cat, cost}
@@ -593,6 +639,19 @@ function estimateEnd(route) {
   });
   return clock;
 }
+
+// 공유 방 UI
+const roomInput = document.getElementById("roomCode");
+roomInput.value = room;
+document.getElementById("roomApply").onclick = () => {
+  const r = roomInput.value.trim();
+  localStorage.setItem("jeju-room", r);
+  location.href = r ? "?room=" + encodeURIComponent(r) : location.pathname;
+};
+document.getElementById("roomNew").onclick = () => {
+  roomInput.value = "jeju-" + Math.random().toString(36).slice(2, 10);
+  document.getElementById("roomApply").onclick();
+};
 
 document.getElementById("roll").onclick = () => {
   // 끝시간 안에 들어올 때까지 재추첨, 안 되면 관광지 수를 줄여가며 시도
