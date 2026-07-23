@@ -266,46 +266,81 @@ const SYNC_KEYS = [K.custom, K.customHotel, K.over, K.del, K.hotelPrice, K.cours
 let room = new URLSearchParams(location.search).get("room") || localStorage.getItem("jeju-room") || "";
 if (room) { localStorage.setItem("jeju-room", room); history.replaceState(null, "", "?room=" + room); }
 
-const snapshot = () => {
-  const o = {};
-  SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v && v !== "[]" && v !== "{}") o[k.replace(/[.#$/\[\]]/g, "_")] = JSON.parse(v); });
-  return o;
-};
-// 키 단위 PATCH — 문서 전체 PUT은 다른 기기가 가진 키를 날려버림
-const safeKey = k => k.replace(/[.#$/\[\]]/g, "_");
-let saveTimer, pending = {};
+// 항목(장소/코스/가격) 단위로 저장 — 기기끼리 같은 목록을 동시에 고쳐도 서로 안 덮어씀
+const safe = s => String(s).replace(/[.#$/\[\]]/g, "_");
+
+// 리스트/객체 → {자식키: 값}. 원본 키는 값 안에 보존 (safe()가 비가역이라)
+function toMap(k, v) {
+  if (k === K.del || k === K.banned) return Object.fromEntries(v.map(x => [safe(x), x]));
+  if (k === K.courses) return Object.fromEntries(v.map(c => [safe(c.name), c]));
+  if (Array.isArray(v)) return Object.fromEntries(v.map(o => [safe(o.id || o.name), o])); // custom, customHotel
+  if (k === K.hotelPrice) return Object.fromEntries(Object.entries(v).map(([n, p]) => [safe(n), { name: n, price: p }]));
+  return Object.fromEntries(Object.entries(v).map(([id, o]) => [safe(id), { ...o, id }])); // overrides
+}
+function fromMap(k, m) {
+  const vals = Object.values(m || {});
+  if (k === K.del || k === K.banned) return vals;
+  if (k === K.courses) return vals.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  if (k === K.custom || k === K.customHotel) return vals;
+  if (k === K.hotelPrice) return Object.fromEntries(vals.map(v => [v.name, v.price]));
+  return Object.fromEntries(vals.map(v => [v.id, v])); // overrides (id 필드는 남아도 무해)
+}
+
+const lastMap = {}; // 마지막으로 원격과 맞춘 상태 (diff 기준)
+let saveTimer, pendingByKey = {}, lastSaveAt = 0;
 function cloudSave(k, v) {
   if (!room || !k) return;
-  const s = JSON.stringify(v);
-  pending[safeKey(k)] = (s === "[]" || s === "{}") ? null : v;
+  lastSaveAt = Date.now();
+  const next = toMap(k, v), prev = lastMap[k] || {};
+  const patch = pendingByKey[k] = pendingByKey[k] || {};
+  Object.keys(next).forEach(id => { if (JSON.stringify(next[id]) !== JSON.stringify(prev[id])) patch[id] = next[id]; });
+  Object.keys(prev).forEach(id => { if (!(id in next)) patch[id] = null; });
+  lastMap[k] = next;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const body = JSON.stringify(pending);
-    pending = {};
-    fetch(`${DB}/rooms/${room}.json`, { method: "PATCH", body }).catch(() => {});
+    const jobs = pendingByKey; pendingByKey = {};
+    Object.entries(jobs).forEach(([key, body]) => {
+      if (Object.keys(body).length)
+        fetch(`${DB}/rooms/${room}/${safe(key)}.json`, { method: "PATCH", body: JSON.stringify(body) }).catch(() => {});
+    });
   }, 800);
 }
-// 시작 시 방 데이터 내려받기. 탭당 1회만 reload해서 무한루프 방지.
-(async () => {
+
+// 방 데이터 내려받아 localStorage에 반영. 바뀌었으면 리로드(코스 뽑는 중엔 보류).
+async function syncDown() {
   if (!room) return;
+  // 내 저장이 올라가는 중이면 이번 턴은 건너뜀 (로컬 수정 유실 방지)
+  if (Object.keys(pendingByKey).length || Date.now() - lastSaveAt < 5000) return;
   try {
     const remote = await (await fetch(`${DB}/rooms/${room}.json`)).json();
-    if (remote === null) { // 새 방: 내 데이터 통째로 업로드
-      fetch(`${DB}/rooms/${room}.json`, { method: "PUT", body: JSON.stringify(snapshot()) }).catch(() => {});
+    if (remote === null) { // 새 방: 내 데이터 업로드
+      SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) cloudSave(k, JSON.parse(v)); });
       return;
     }
     let changed = false;
     SYNC_KEYS.forEach(k => {
-      const v = remote[k.replace(/[.#$/\[\]]/g, "_")];
-      const s = v === undefined ? null : JSON.stringify(v);
+      let m = remote[safe(k)];
+      // 구버전(통짜) 데이터는 새 형식으로 변환해서 원격도 한 번 재기록
+      if (Array.isArray(m) ||
+          (k === K.hotelPrice && m && typeof Object.values(m)[0] !== "object") ||
+          (k === K.over && m && Object.values(m)[0] && !Object.values(m)[0].id)) {
+        m = toMap(k, m); // 구형식은 toMap 입력형과 동일 (배열/평면객체)
+        fetch(`${DB}/rooms/${room}/${safe(k)}.json`, { method: "PUT", body: JSON.stringify(m) }).catch(() => {});
+      }
+      lastMap[k] = m || {};
+      const v = m ? fromMap(k, m) : null;
+      const s = v === null || JSON.stringify(v) === "[]" || JSON.stringify(v) === "{}" ? null : JSON.stringify(v);
       if (s !== localStorage.getItem(k)) {
         changed = true;
         s === null ? localStorage.removeItem(k) : localStorage.setItem(k, s);
       }
     });
-    if (changed && !window.rolled) location.reload(); // 코스 뽑는 중이면 리로드로 화면 안 날림
+    if (changed && !window.rolled) location.reload();
   } catch {}
-})();
+}
+syncDown();
+setInterval(syncDown, 30000); // 다른 기기 변경 주기적으로 반영
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncDown(); });
 
 const deleted = new Set(load(K.del, []));
 const overrides = load(K.over, {});           // id → {name, cat, cost}
