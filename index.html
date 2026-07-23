@@ -5,81 +5,151 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>제주 하루 코스 뽑기</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
+  :root {
+    --tangerine: #F5730B;   /* 감귤 */
+    --tangerine-deep: #D95F00;
+    --basalt: #23282D;      /* 현무암 */
+    --sea: #0E7490;         /* 제주 바다 */
+    --plum: #8E5BB5;
+    --haze: #F6F7F5;
+    --sand: #FFF3E6;
+    --line: #E7E4DE;
+    --muted: #7A7E83;
+  }
   * { box-sizing: border-box; margin: 0; }
-  body { font-family: "Pretendard", "Malgun Gothic", sans-serif; background: #f4f6f8; color: #1c2733;
+  body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif;
+         background: var(--haze); color: var(--basalt);
          height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
-  header { flex: none; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e3e8ee; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-  header h1 { font-size: 18px; margin-right: auto; }
-  select, button, input[type=number] { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid #cfd8e0; background: #fff; }
-  button#roll { background: #ff6b35; color: #fff; border: none; cursor: pointer; font-weight: 700; }
-  button#roll:hover { background: #e85a26; }
+  header { flex: none; padding: 10px 18px; background: var(--basalt); color: #fff;
+           display: flex; align-items: baseline; gap: 10px; }
+  header h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+  header .sub { font-size: 12px; color: #B8BDC2; }
+  select, button, input[type=number], input[type=time], input[list] {
+    font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: #fff; color: var(--basalt); }
+  select:focus, button:focus-visible, input:focus { outline: 2px solid var(--tangerine); outline-offset: 1px; border-color: var(--tangerine); }
   #wrap { display: flex; flex: 1; min-height: 0; }
   #map { flex: 1; min-height: 200px; }
-  #panel { width: 360px; overflow-y: auto; background: #fff; border-left: 1px solid #e3e8ee; padding: 16px; }
-  #panel h2 { font-size: 15px; margin-bottom: 10px; }
-  .stop { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eef2f5; font-size: 14px; }
-  .stop .no { flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1c2733; color: #fff; text-align: center; line-height: 24px; font-size: 12px; font-weight: 700; }
-  .stop .no.meal { background: #ff6b35; }
-  .stop .time { font-weight: 700; }
-  .stop .role { color: #ff6b35; font-weight: 700; }
-  .stop .leg { color: #6b7a89; font-size: 12px; }
-  .total { margin-top: 12px; font-size: 14px; font-weight: 700; }
-  #cost { margin-top: 8px; font-size: 13px; background: #f4f6f8; border-radius: 8px; padding: 10px 12px; line-height: 1.7; }
-  #cost b { float: right; }
-  #pins, #custom { margin: 6px 0; font-size: 12px; }
-  .pinchip { display: inline-block; background: #fff3ec; color: #e85a26; border: 1px solid #ffd0bb; border-radius: 99px; padding: 2px 8px; margin: 2px; cursor: pointer; }
-  .note { margin-top: 12px; font-size: 12px; color: #6b7a89; line-height: 1.5; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; background: #eef2f5; font-size: 12px; font-weight: 700; }
-  .editForm { font-size: 13px; display: grid; gap: 4px; min-width: 180px; }
-  .editForm input, .editForm select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid #cfd8e0; border-radius: 6px; }
+  #panel { width: 390px; overflow-y: auto; background: #fff; border-left: 1px solid var(--line);
+           padding: 14px 16px 24px; }
+
+  /* 뽑기 버튼 */
+  #roll { width: 100%; padding: 14px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em;
+          background: var(--tangerine); color: #fff; border: none; border-radius: 14px; cursor: pointer;
+          box-shadow: 0 3px 0 var(--tangerine-deep); transition: transform .08s, box-shadow .08s; }
+  #roll:hover { transform: translateY(1px); box-shadow: 0 2px 0 var(--tangerine-deep); }
+  #roll:active { transform: translateY(3px); box-shadow: 0 0 0 var(--tangerine-deep); }
+  .rollRow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .badge { flex: none; padding: 4px 12px; border-radius: 99px; background: var(--sand);
+           color: var(--tangerine-deep); font-size: 13px; font-weight: 800; }
+  .badge:empty { display: none; }
+
+  /* 설정 */
+  details.settings { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; background: #fff; }
+  details.settings summary { cursor: pointer; padding: 10px 12px; font-size: 13px; font-weight: 700; color: var(--muted); list-style: none; }
+  details.settings summary::before { content: "⚙︎ "; }
+  details.settings[open] summary { border-bottom: 1px dashed var(--line); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; padding: 10px 12px; }
+  .grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .grid select, .grid input { width: 100%; }
+  .grid .wide { grid-column: 1 / -1; }
+
+  /* 검색/칩 */
+  .searchRow { display: flex; gap: 6px; margin-bottom: 6px; }
+  .searchRow input { flex: 1; min-width: 0; }
+  #searchResults { font-size: 13px; }
+  #pins, #custom { margin: 6px 0; font-size: 12px; line-height: 2; }
+  .pinchip { display: inline-block; background: var(--sand); color: var(--tangerine-deep);
+             border: 1px solid #F8CFA5; border-radius: 99px; padding: 2px 10px; margin: 1px; cursor: pointer; }
+  .pinchip:hover { background: #FFE8D1; }
+
+  /* 타임라인: 버스 노선도처럼 */
+  #stops { margin-top: 6px; font-size: 14px; color: var(--muted); }
+  .stop { position: relative; display: flex; gap: 12px; padding: 0 0 2px 4px; color: var(--basalt); }
+  .stop::before { content: ""; position: absolute; left: 15px; top: 0; bottom: 0; width: 3px;
+                  background: var(--line); border-radius: 2px; }
+  .stop:first-child::before { top: 12px; }
+  .stop:last-child::before { bottom: auto; height: 12px; }
+  .stop .no { position: relative; z-index: 1; flex: none; width: 26px; height: 26px; margin-top: 8px;
+              border-radius: 50%; background: var(--sea); color: #fff; text-align: center;
+              line-height: 26px; font-size: 12px; font-weight: 800; border: 2px solid #fff;
+              box-shadow: 0 0 0 1px var(--line); }
+  .stop .no.meal { background: var(--tangerine); }
+  .stop > div:last-child { flex: 1; padding: 8px 0 10px; border-bottom: 1px dashed var(--line); }
+  .stop:last-child > div:last-child { border-bottom: none; }
+  .stop .time { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .stop .role { color: var(--tangerine-deep); font-weight: 800; }
+  .stop .leg { color: var(--muted); font-size: 12px; padding-bottom: 2px; }
+  .stop small { color: var(--muted); font-weight: 400; }
+
+  .total { margin-top: 12px; font-size: 15px; font-weight: 800; }
+  #cost { margin-top: 8px; font-size: 13px; background: var(--haze); border: 1px solid var(--line);
+          border-radius: 12px; padding: 10px 14px; line-height: 1.9; }
+  #cost b { float: right; font-variant-numeric: tabular-nums; }
+  .note { margin-top: 14px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+  .editForm { font-size: 13px; display: grid; gap: 5px; min-width: 190px; font-family: inherit; }
+  .editForm input, .editForm select { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; }
+  .editForm button { padding: 5px 10px; border-radius: 8px; }
+
+  @media (prefers-reduced-motion: reduce) { #roll { transition: none; } }
   @media (max-width: 700px) {
-    header { padding: 8px 10px; gap: 6px; }
-    header h1 { font-size: 15px; width: 100%; }
-    header label { font-size: 13px; }
-    select, button { padding: 6px 8px; }
+    header { padding: 8px 14px; }
     #wrap { flex-direction: column; }
-    #map { min-height: 45%; }
-    #panel { width: 100%; flex: 1; min-height: 0; border-left: none; border-top: 1px solid #e3e8ee; }
+    #map { min-height: 42%; }
+    #panel { width: 100%; flex: 1; min-height: 0; border-left: none;
+             border-radius: 16px 16px 0 0; margin-top: -14px; z-index: 500;
+             box-shadow: 0 -6px 16px rgba(0,0,0,.12); padding-top: 10px; }
+    #panel::before { content: ""; display: block; width: 44px; height: 4px; border-radius: 2px;
+                     background: var(--line); margin: 0 auto 10px; }
   }
 </style>
 </head>
 <body>
 <header>
   <h1>제주 하루 코스 뽑기 🎲</h1>
-  <label>숙소: <select id="hotel"></select></label>
-  <label>1박 <input type="number" id="hotelPrice" step="10000" min="0" style="width:100px;padding:6px 8px">원</label>
-  <label>권역:
-    <select id="region">
-      <option value="random">랜덤</option>
-      <option value="동부">동부</option>
-      <option value="서부">서부</option>
-      <option value="남부">남부</option>
-    </select>
-  </label>
-  <label>인원: <select id="people"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>명</label>
-  <label>관광지: <select id="nspots"><option>2</option><option selected>3</option><option>4</option><option>5</option></select>곳</label>
-  <label>출발: <input type="time" id="start" value="08:30" style="font:inherit;padding:7px 10px;border-radius:8px;border:1px solid #cfd8e0"></label>
-  <label>끝: <input type="time" id="end" value="21:00" style="font:inherit;padding:7px 10px;border-radius:8px;border:1px solid #cfd8e0"></label>
-  <label>시작점: <select id="startPt"><option>숙소</option><option>공항</option></select></label>
-  <label>끝점: <select id="endPt"><option>숙소</option><option>공항</option></select></label>
-  <button id="roll">오늘의 코스 뽑기</button>
+  <span class="sub">'26.8. 셋이서 감귤 로드트립</span>
 </header>
 <div id="wrap">
   <div id="map"></div>
   <div id="panel">
-    <h2>코스 <span class="badge" id="regionBadge"></span></h2>
-    <div style="display:flex;gap:6px;margin-bottom:6px">
-      <input list="placeNames" id="pinSearch" placeholder="🔍 목록/새 장소 검색"
-        style="flex:1;min-width:0;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #cfd8e0">
-      <select id="newCat" style="padding:8px 6px"><option>관광</option><option>식당</option><option>카페</option><option>숙소</option></select>
+    <div class="rollRow">
+      <button id="roll">🎲 오늘의 코스 뽑기</button>
+      <span class="badge" id="regionBadge"></span>
+    </div>
+    <details class="settings">
+      <summary>숙소·인원·시간 설정</summary>
+      <div class="grid">
+        <label class="wide">숙소 <select id="hotel"></select></label>
+        <label>1박 (원) <input type="number" id="hotelPrice" step="10000" min="0"></label>
+        <label>권역
+          <select id="region">
+            <option value="random">랜덤</option>
+            <option value="동부">동부</option>
+            <option value="서부">서부</option>
+            <option value="남부">남부</option>
+          </select>
+        </label>
+        <label>인원 <select id="people"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
+        <label>관광지 수 <select id="nspots"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+        <label>출발 시각 <input type="time" id="start" value="08:30"></label>
+        <label>끝 시각 <input type="time" id="end" value="21:00"></label>
+        <label>시작점 <select id="startPt"><option>숙소</option><option>공항</option></select></label>
+        <label>끝점 <select id="endPt"><option>숙소</option><option>공항</option></select></label>
+      </div>
+    </details>
+    <div class="searchRow">
+      <input list="placeNames" id="pinSearch" placeholder="🔍 장소 검색 (없으면 새로 추가)">
+      <select id="newCat"><option>관광</option><option>식당</option><option>카페</option><option>숙소</option></select>
       <button id="searchBtn">검색</button>
     </div>
     <datalist id="placeNames"></datalist>
-    <div id="searchResults" style="font-size:13px"></div>
+    <div id="searchResults"></div>
     <div id="pins"></div>
     <div id="custom"></div>
-    <div id="stops">지도 점 클릭 = 📌 포함 · 우클릭(모바일: 길게) = 수정/삭제 · 버튼으로 코스 생성.</div>
+    <div id="stops">지도의 점을 누르면 📌 코스에 무조건 포함되고, 꾹 누르면(PC: 우클릭) 수정·삭제할 수 있어요. 준비되면 위의 주황 버튼!</div>
     <div class="total" id="total"></div>
     <div id="cost" hidden></div>
     <div class="note">출발 시각·시작/끝점은 위에서 선택. 아침은 일통이반(아침 물회, 숙소 전부 차 5~10분),
@@ -258,7 +328,7 @@ let routeLayer = L.layerGroup().addTo(map);
 
 const pinned = new Set();
 const markers = {};
-const CAT_COLOR = { 관광: "#1c2733", 식당: "#e85a26", 카페: "#b06ab3" };
+const CAT_COLOR = { 관광: "#0E7490", 식당: "#F5730B", 카페: "#8E5BB5" };
 const byId = id => PLACES.find(p => p.id === id);
 
 function pinStyle(p) {
@@ -451,7 +521,7 @@ async function render(region, route) {
     const isMeal = p.cat === "식당" || p.cat === "카페";
     const isEnd = i === 0 || i === route.length - 1;
     const icon = L.divIcon({
-      html: `<div style="width:26px;height:26px;border-radius:50%;background:${isMeal ? "#ff6b35" : "#1c2733"};
+      html: `<div style="width:26px;height:26px;border-radius:50%;background:${isMeal ? "#F5730B" : "#0E7490"};
              color:#fff;text-align:center;line-height:26px;font-size:12px;font-weight:700;
              border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${isEnd ? (p.name.includes("공항") ? "✈️" : "🏨") : i}</div>`,
       className: "", iconSize: [26, 26], iconAnchor: [13, 13],
@@ -485,10 +555,10 @@ async function render(region, route) {
   });
 
   if (road) {
-    L.geoJSON(road.geometry, { style: { color: "#ff6b35", weight: 4, opacity: .85 } }).addTo(routeLayer);
+    L.geoJSON(road.geometry, { style: { color: "#F5730B", weight: 4, opacity: .85 } }).addTo(routeLayer);
   } else {
     L.polyline(route.map(p => [p.lat, p.lng]),
-      { color: "#ff6b35", weight: 3, dashArray: "6 8" }).addTo(routeLayer);
+      { color: "#F5730B", weight: 3, dashArray: "6 8" }).addTo(routeLayer);
   }
   map.fitBounds(route.map(p => [p.lat, p.lng]), { padding: [40, 40] });
   const over = clock > timeVal("end");
