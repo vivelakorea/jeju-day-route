@@ -68,7 +68,7 @@
     <div style="display:flex;gap:6px;margin-bottom:6px">
       <input list="placeNames" id="pinSearch" placeholder="🔍 목록/새 장소 검색"
         style="flex:1;min-width:0;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #cfd8e0">
-      <select id="newCat" style="padding:8px 6px"><option>관광</option><option>식당</option><option>카페</option></select>
+      <select id="newCat" style="padding:8px 6px"><option>관광</option><option>식당</option><option>카페</option><option>숙소</option></select>
       <button id="searchBtn">검색</button>
     </div>
     <datalist id="placeNames"></datalist>
@@ -230,6 +230,8 @@ const baseLayer = L.layerGroup().addTo(map); // 저장 장소 전체(상시)
 let routeLayer = L.layerGroup().addTo(map);
 
 const sel = document.getElementById("hotel");
+const CUSTOM_HOTEL_KEY = "jeju-custom-hotels";
+HOTELS.push(...JSON.parse(localStorage.getItem(CUSTOM_HOTEL_KEY) || "[]"));
 HOTELS.forEach((h, i) => sel.add(new Option(h.name, i)));
 
 // 전체 장소 상시 표시 + 클릭으로 📌 토글
@@ -298,15 +300,25 @@ async function searchPlace() {
     if (!chip) return;
     const h = hits[+chip.dataset.i];
     const cat = document.getElementById("newCat").value;
-    const p = { name: h.name || h.display_name.split(",")[0], cat,
-      region: regionOf(+h.lat, +h.lon), lat: +h.lat, lng: +h.lon,
-      cost: { 식당: 15000, 카페: 8000, 관광: 0 }[cat], custom: true };
-    if (!PLACES.some(x => x.name === p.name)) {
-      PLACES.push(p); addMarker(p);
-      localStorage.setItem(CUSTOM_KEY, JSON.stringify(PLACES.filter(x => x.custom)));
+    const name = h.name || h.display_name.split(",")[0];
+    if (cat === "숙소") {
+      if (!HOTELS.some(x => x.name === name)) {
+        const hotel = { name, lat: +h.lat, lng: +h.lon, price: 100000, custom: true }; // 1박 대략값, 실제론 예약가 확인
+        HOTELS.push(hotel);
+        sel.add(new Option(name, HOTELS.length - 1));
+        localStorage.setItem(CUSTOM_HOTEL_KEY, JSON.stringify(HOTELS.filter(x => x.custom)));
+      }
+      sel.value = HOTELS.findIndex(x => x.name === name);
+    } else {
+      const p = { name, cat, region: regionOf(+h.lat, +h.lon), lat: +h.lat, lng: +h.lon,
+        cost: { 식당: 15000, 카페: 8000, 관광: 0 }[cat], custom: true };
+      if (!PLACES.some(x => x.name === p.name)) {
+        PLACES.push(p); addMarker(p);
+        localStorage.setItem(CUSTOM_KEY, JSON.stringify(PLACES.filter(x => x.custom)));
+      }
+      togglePin(PLACES.find(x => x.name === p.name));
     }
-    togglePin(PLACES.find(x => x.name === p.name));
-    map.setView([p.lat, p.lng], 12);
+    map.setView([+h.lat, +h.lon], 12);
     resEl.innerHTML = ""; document.getElementById("pinSearch").value = "";
   };
 }
