@@ -119,6 +119,7 @@
       <button id="roll">🎲 오늘의 코스 뽑기</button>
       <span class="badge" id="regionBadge"></span>
     </div>
+    <div id="courses" style="font-size:12px;margin-bottom:6px"></div>
     <details class="settings">
       <summary>숙소·인원·시간 설정</summary>
       <div class="grid">
@@ -164,6 +165,7 @@
     <div id="custom"></div>
     <div id="stops">지도의 점을 누르면 📌 코스에 무조건 포함되고, 꾹 누르면(PC: 우클릭) 수정·삭제할 수 있어요. 준비되면 위의 주황 버튼!</div>
     <div class="total" id="total"></div>
+    <button id="saveCourse" hidden style="margin-top:8px;width:100%">💾 이 코스 저장</button>
     <div id="cost" hidden></div>
     <div class="note">출발 시각·시작/끝점·아침 식당은 설정에서 선택 (아침 기본값은 일통이반 — 아침 물회로 유명하고 숙소들에서 차 5~10분).
     하루에 한 권역(동부/서부/남부)만 돌고 점심은 권역 안, 저녁은 복귀 길 시내 식당.
@@ -233,11 +235,12 @@ const AIRPORT = { name: "제주국제공항", lat: 33.5066, lng: 126.4927 };
 const store = (k, v) => { localStorage.setItem(k, JSON.stringify(v)); if (typeof cloudSave === "function") cloudSave(); };
 const load = (k, d) => JSON.parse(localStorage.getItem(k) || JSON.stringify(d));
 const K = { custom: "jeju-custom-places", customHotel: "jeju-custom-hotels",
-            over: "jeju-overrides", del: "jeju-deleted", hotelPrice: "jeju-hotel-prices" };
+            over: "jeju-overrides", del: "jeju-deleted", hotelPrice: "jeju-hotel-prices",
+            courses: "jeju-courses", banned: "jeju-banned" };
 
 // ===== 공유 방: Firebase RTDB (방 코드를 아는 사람끼리만 공유) =====
 const DB = "https://jeju-trip-c2ccd-default-rtdb.asia-southeast1.firebasedatabase.app";
-const SYNC_KEYS = [K.custom, K.customHotel, K.over, K.del, K.hotelPrice];
+const SYNC_KEYS = [K.custom, K.customHotel, K.over, K.del, K.hotelPrice, K.courses, K.banned];
 let room = new URLSearchParams(location.search).get("room") || localStorage.getItem("jeju-room") || "";
 if (room) { localStorage.setItem("jeju-room", room); history.replaceState(null, "", "?room=" + room); }
 
@@ -275,6 +278,8 @@ function cloudSave() {
 const deleted = new Set(load(K.del, []));
 const overrides = load(K.over, {});           // id → {name, cat, cost}
 const hotelPrices = load(K.hotelPrice, {});   // name → price
+const banned = new Set(load(K.banned, []));   // 안 가기 (랜덤에서 제외, 📌하면 다시 감)
+const courses = load(K.courses, []);          // 저장된 코스
 
 // id = 원래 이름(불변). 표시 이름은 p.name (수정 가능)
 const PLACES = BASE_PLACES.filter(p => !deleted.has(p.name))
@@ -331,12 +336,12 @@ function rollCourse(hotel, regionPick, pinned, nOverride) {
   const region = regionPick !== "random" ? regionPick
     : pinRegions.length ? mode(pinRegions)
     : sample(["동부", "서부", "남부"], 1)[0];
-  const inR = c => PLACES.filter(p => p.region === region && p.cat === c && !pinned.has(p.id));
+  const inR = c => PLACES.filter(p => p.region === region && p.cat === c && !pinned.has(p.id) && !banned.has(p.id));
 
   const bSel = document.getElementById("breakfastSel").value;
-  const cityFood = PLACES.filter(p => p.region === "시내" && p.cat === "식당");
+  const cityFood = PLACES.filter(p => p.region === "시내" && p.cat === "식당" && !banned.has(p.id));
   // 랜덤은 아침 되는 곳(bfOk: 물회·국수류)만 — 시내 또는 그날 권역
-  const bfPool = PLACES.filter(p => p.cat === "식당" && p.bfOk && (p.region === "시내" || p.region === region));
+  const bfPool = PLACES.filter(p => p.cat === "식당" && p.bfOk && !banned.has(p.id) && (p.region === "시내" || p.region === region));
   const breakfast = bSel === "skip" ? null
     : bSel === "random" ? sample(bfPool, 1)[0] || PLACES.find(p => p.breakfast)
     : PLACES.find(p => p.id === bSel) || PLACES.find(p => p.breakfast);
@@ -390,9 +395,9 @@ const CAT_COLOR = { 관광: "#0E7490", 식당: "#F5730B", 카페: "#8E5BB5" };
 const byId = id => PLACES.find(p => p.id === id);
 
 function pinStyle(p) {
-  const on = pinned.has(p.id);
+  const on = pinned.has(p.id), ban = banned.has(p.id);
   return { radius: on ? 9 : 5, color: on ? "#d4a017" : "#fff", weight: on ? 3 : 1.5,
-           fillColor: CAT_COLOR[p.cat], fillOpacity: .9 };
+           fillColor: ban ? "#B4BAC0" : CAT_COLOR[p.cat], fillOpacity: ban ? .55 : .9 };
 }
 function refreshPins() {
   document.getElementById("pins").innerHTML = pinned.size
@@ -402,10 +407,13 @@ function refreshPins() {
 function refreshCustom() {
   const items = PLACES.filter(p => p.custom);
   const chotels = HOTELS.filter(h => h.custom);
+  const bans = [...banned].map(byId).filter(Boolean);
   document.getElementById("custom").innerHTML =
     (items.length || chotels.length ? "직접 추가: " +
       items.map(p => `<span class="pinchip" data-id="${p.id}">${p.name} 🗑</span>`).join("") +
       chotels.map(h => `<span class="pinchip" data-hotel="${h.name}">🏨 ${h.name} 🗑</span>`).join("") : "") +
+    (bans.length ? `<br>🚫 안 가기 (누르면 해제): ` +
+      bans.map(p => `<span class="pinchip" data-unban="${p.id}" style="filter:grayscale(1)">${p.name} ✕</span>`).join("") : "") +
     (deleted.size ? ` <span class="pinchip" id="restoreDel">삭제한 기본 장소 ${deleted.size}곳 복원 ↩</span>` : "");
 }
 function togglePin(p) {
@@ -427,7 +435,7 @@ function editForm(p) {
     <input id="eName" value="${p.name.replace(/"/g, "&quot;")}">
     <select id="eCat">${["관광", "식당", "카페"].map(c => `<option${c === p.cat ? " selected" : ""}>${c}</option>`).join("")}</select>
     <label>비용/인 <input id="eCost" type="number" step="1000" min="0" value="${p.cost || 0}" style="width:90px"></label>
-    <div><button id="eSave">저장</button> <button id="eDel" style="color:#c0392b">삭제</button></div>`;
+    <div><button id="eSave">저장</button> <button id="eBan">${banned.has(p.id) ? "✅ 다시 가기" : "🚫 안 가기"}</button> <button id="eDel" style="color:#c0392b">삭제</button></div>`;
   div.querySelector("#eSave").onclick = () => {
     p.name = div.querySelector("#eName").value.trim() || p.name;
     p.cat = div.querySelector("#eCat").value;
@@ -438,8 +446,16 @@ function editForm(p) {
     datalistRefresh(); refreshPins(); refreshCustom();
     markers[p.id].closePopup();
   };
+  div.querySelector("#eBan").onclick = () => { toggleBan(p); markers[p.id].closePopup(); };
   div.querySelector("#eDel").onclick = () => deletePlace(p);
   return div;
+}
+function toggleBan(p) {
+  if (banned.has(p.id)) banned.delete(p.id);
+  else { banned.add(p.id); pinned.delete(p.id); }
+  store(K.banned, [...banned]);
+  markers[p.id].setStyle(pinStyle(p));
+  refreshPins(); refreshCustom();
 }
 function deletePlace(p) {
   baseLayer.removeLayer(markers[p.id]); delete markers[p.id];
@@ -465,6 +481,8 @@ document.getElementById("pins").addEventListener("click", e => {
 });
 document.getElementById("custom").addEventListener("click", e => {
   if (e.target.closest("#restoreDel")) { deleted.clear(); persistPlaces(); location.reload(); return; }
+  const unban = e.target.closest("[data-unban]");
+  if (unban) { toggleBan(byId(unban.dataset.unban)); return; }
   const hchip = e.target.closest("[data-hotel]");
   if (hchip) {
     HOTELS.splice(HOTELS.findIndex(h => h.name === hchip.dataset.hotel), 1);
@@ -564,7 +582,10 @@ const hhmm = m => (m >= 1440 ? "다음날 " : "") +
   `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m) % 60).padStart(2, "0")}`;
 const won = n => n.toLocaleString("ko-KR") + "원";
 
+let lastCourse = null;
 async function render(region, route) {
+  lastCourse = { region, route };
+  document.getElementById("saveCourse").hidden = false;
   routeLayer.clearLayers();
   document.getElementById("regionBadge").textContent = region;
   const stopsEl = document.getElementById("stops");
@@ -659,6 +680,33 @@ function estimateEnd(route) {
 const bSelEl = document.getElementById("breakfastSel");
 PLACES.filter(p => p.region === "시내" && p.cat === "식당").forEach(p => bSelEl.add(new Option(p.name, p.id)));
 if (PLACES.some(p => p.breakfast)) bSelEl.value = PLACES.find(p => p.breakfast).id;
+
+// 저장된 코스: 이름 클릭 = 다시 보기, 🗑 = 삭제. 방 코드로 공유됨.
+function refreshCourses() {
+  document.getElementById("courses").innerHTML = courses.length
+    ? "💾 " + courses.map((c, i) =>
+        `<span class="pinchip" data-ci="${i}">${c.name}</span><span class="pinchip" data-cx="${i}">🗑</span>`).join(" ")
+    : "";
+}
+document.getElementById("courses").addEventListener("click", e => {
+  const x = e.target.closest("[data-cx]");
+  if (x) { courses.splice(+x.dataset.cx, 1); store(K.courses, courses); refreshCourses(); return; }
+  const v = e.target.closest("[data-ci]");
+  if (v) {
+    const c = courses[+v.dataset.ci];
+    if (c.start) document.getElementById("start").value = c.start;
+    document.getElementById("regionBadge").textContent = c.region;
+    render(c.region, c.route);
+  }
+});
+document.getElementById("saveCourse").onclick = () => {
+  if (!lastCourse) return;
+  courses.push({ name: `${lastCourse.region} ${courses.filter(c => c.region === lastCourse.region).length + 1}`,
+    region: lastCourse.region, route: lastCourse.route, start: document.getElementById("start").value });
+  store(K.courses, courses);
+  refreshCourses();
+};
+refreshCourses();
 
 // 공유 방 UI
 const roomInput = document.getElementById("roomCode");
