@@ -548,7 +548,8 @@ document.getElementById("pinSearch").addEventListener("change", () => {
 // ===== 코스 렌더 =====
 const STAY = { 아침: 45, 점심: 60, 저녁: 60, 카페: 45, 관광: 75 };
 const stayOf = p => p.stay || STAY[p.role || p.cat] || 60;
-const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m) % 60).padStart(2, "0")}`;
+const hhmm = m => (m >= 1440 ? "다음날 " : "") +
+  `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m) % 60).padStart(2, "0")}`;
 const won = n => n.toLocaleString("ko-KR") + "원";
 
 async function render(region, route) {
@@ -577,11 +578,13 @@ async function render(region, route) {
     let legHtml = "";
     if (i > 0) {
       let km, min;
-      if (road) {
+      const estKm = dist(route[i - 1], p) * 1.35;
+      if (road && road.legs[i - 1].distance / 1000 < Math.max(estKm * 3, 15)) {
         km = road.legs[i - 1].distance / 1000;
         min = road.legs[i - 1].duration / 60 * 1.2; // OSRM이 좀 낙관적이라 보정
       } else {
-        km = dist(route[i - 1], p) * 1.35;
+        // OSRM이 없거나, 항구 좌표가 배 항로로 잘못 붙어 구간이 뻥튀기된 경우 → 직선거리 추정
+        km = estKm;
         min = km / 40 * 60;
       }
       totalKm += km; clock += min;
