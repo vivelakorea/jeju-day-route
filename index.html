@@ -46,17 +46,29 @@
     </select>
   </label>
   <label>인원: <select id="people"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>명</label>
+  <label>관광지: <select id="nspots"><option>2</option><option selected>3</option><option>4</option><option>5</option></select>곳</label>
+  <label>출발: <input type="time" id="start" value="08:30" style="font:inherit;padding:7px 10px;border-radius:8px;border:1px solid #cfd8e0"></label>
+  <label>시작점: <select id="startPt"><option>숙소</option><option>공항</option></select></label>
+  <label>끝점: <select id="endPt"><option>숙소</option><option>공항</option></select></label>
   <button id="roll">오늘의 코스 뽑기</button>
 </header>
 <div id="wrap">
   <div id="map"></div>
   <div id="panel">
     <h2>코스 <span class="badge" id="regionBadge"></span></h2>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <input list="placeNames" id="pinSearch" placeholder="🔍 목록/새 장소 검색"
+        style="flex:1;min-width:0;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #cfd8e0">
+      <select id="newCat" style="padding:8px 6px"><option>관광</option><option>식당</option><option>카페</option></select>
+      <button id="searchBtn">검색</button>
+    </div>
+    <datalist id="placeNames"></datalist>
+    <div id="searchResults" style="font-size:13px"></div>
     <div id="pins"></div>
     <div id="stops">지도 점 클릭 = 📌 무조건 포함 · 버튼으로 코스 생성.</div>
     <div class="total" id="total"></div>
     <div id="cost" hidden></div>
-    <div class="note">08:30 출발 기준. 아침은 일통이반(아침 물회, 숙소 전부 차 5~10분),
+    <div class="note">출발 시각은 위에서 선택. 아침은 일통이반(아침 물회, 숙소 전부 차 5~10분),
     하루에 한 권역(동부/서부/남부)만 돌고 점심은 권역 안, 저녁은 복귀 길 시내 식당.
     📌 찍은 장소는 권역과 무관하게 무조건 코스에 들어감 (권역도 📌 다수결로 따라감).
     체류(밥·구경 시간): 식사 60분 · 카페 45분 · 관광 75분 · 우도 3시간30분 · 마라도 2시간30분(배 왕복 포함).
@@ -116,8 +128,8 @@ const PLACES = [
   { name: "9.81 파크",                cat: "관광", region: "서부", lat: 33.4280, lng: 126.3410, cost: 40000 },
   { name: "송악산",                   cat: "관광", region: "남부", lat: 33.2000, lng: 126.2900, cost: 0 },
   // 섬: 좌표는 배 타는 선착장 기준, stay는 배 왕복+구경 포함, cost는 배삯 왕복
-  { name: "우도 (성산항서 배 15분)",   cat: "관광", region: "동부", lat: 33.4740, lng: 126.9360, cost: 11000, stay: 210 },
-  { name: "마라도 (운진항서 배 30분)", cat: "관광", region: "남부", lat: 33.2145, lng: 126.2530, cost: 21000, stay: 150 },
+  { name: "우도 (성산항서 배 15분)",   cat: "관광", region: "동부", lat: 33.4738, lng: 126.9270, cost: 11000, stay: 210 },
+  { name: "마라도 (운진항서 배 30분)", cat: "관광", region: "남부", lat: 33.2150, lng: 126.2510, cost: 21000, stay: 150 },
 ];
 
 const R = 6371;
@@ -152,7 +164,11 @@ const mode = arr => [...new Set(arr)].sort((a, b) =>
 
 // 아침(시내) → 오전 관광 → 점심(권역) → 오후 관광+카페 → 저녁(시내) → 숙소.
 // 📌(pinned)은 무조건 포함, 권역은 📌 다수결 > 선택값 > 랜덤.
+const AIRPORT = { name: "제주국제공항", lat: 33.5066, lng: 126.4927 };
+
 function rollCourse(hotel, regionPick, pinned) {
+  const startP = document.getElementById("startPt").value === "공항" ? AIRPORT : hotel;
+  const endP = document.getElementById("endPt").value === "공항" ? AIRPORT : hotel;
   const pin = PLACES.filter(p => pinned.has(p.name));
   const pinRegions = pin.filter(p => p.region !== "시내").map(p => p.region);
   const region = regionPick !== "random" ? regionPick
@@ -161,8 +177,9 @@ function rollCourse(hotel, regionPick, pinned) {
   const inR = c => PLACES.filter(p => p.region === region && p.cat === c && !pinned.has(p.name));
 
   const breakfast = PLACES.find(p => p.breakfast);
+  const nSpots = +document.getElementById("nspots").value;
   const pinSpots = pin.filter(p => p.cat === "관광");
-  const spots = [...pinSpots, ...sample(inR("관광"), Math.max(0, 3 - pinSpots.length))];
+  const spots = [...pinSpots, ...sample(inR("관광"), Math.max(0, nSpots - pinSpots.length))];
   const pinCafes = pin.filter(p => p.cat === "카페" && p.region !== "시내");
   const cafes = pinCafes.length ? pinCafes : sample(inR("카페"), 1);
   const pinFood = pin.filter(p => p.cat === "식당" && p.region !== "시내" && !p.breakfast);
@@ -171,17 +188,18 @@ function rollCourse(hotel, regionPick, pinned) {
     || sample(PLACES.filter(p => p.region === "시내" && p.cat === "식당" && !p.breakfast), 1)[0];
   const cityEvening = pin.filter(p => p.cat === "카페" && p.region === "시내"); // 맥파이 등: 저녁 전에
 
-  const morning = nearestOrder(breakfast, spots.slice(0, 2));
-  const afternoon = nearestOrder(lunch, [...spots.slice(2), ...pinFood.slice(1), ...cafes].filter(Boolean));
+  const half = Math.ceil(spots.length / 2);
+  const morning = nearestOrder(breakfast, spots.slice(0, half));
+  const afternoon = nearestOrder(lunch, [...spots.slice(half), ...pinFood.slice(1), ...cafes].filter(Boolean));
 
-  const route = [hotel,
+  const route = [startP,
     { ...breakfast, role: "아침" },
     ...morning,
     { ...lunch, role: "점심" },
     ...afternoon,
     ...cityEvening,
     { ...dinner, role: "저녁" },
-    hotel];
+    endP];
   return { region, route };
 }
 
@@ -213,19 +231,81 @@ function pinStyle(p) {
   return { radius: on ? 9 : 5, color: on ? "#d4a017" : "#fff", weight: on ? 3 : 1.5,
            fillColor: CAT_COLOR[p.cat], fillOpacity: .9 };
 }
+const markers = {};
 function refreshPins() {
   document.getElementById("pins").innerHTML = pinned.size
-    ? "📌 " + [...pinned].map(n => `<span class="pinchip">${n}</span>`).join("")
+    ? "📌 " + [...pinned].map(n => `<span class="pinchip" data-name="${n}" style="cursor:pointer">${n} ✕</span>`).join("")
     : "";
 }
-PLACES.forEach(p => {
-  const m = L.circleMarker([p.lat, p.lng], pinStyle(p)).addTo(baseLayer)
-    .bindTooltip(`${p.name} (${p.cat})`, { direction: "top" });
-  m.on("click", () => {
-    pinned.has(p.name) ? pinned.delete(p.name) : pinned.add(p.name);
-    m.setStyle(pinStyle(p));
-    refreshPins();
-  });
+function togglePin(p) {
+  pinned.has(p.name) ? pinned.delete(p.name) : pinned.add(p.name);
+  markers[p.name].setStyle(pinStyle(p));
+  refreshPins();
+}
+document.getElementById("pins").addEventListener("click", e => {
+  const chip = e.target.closest(".pinchip");
+  if (chip) togglePin(PLACES.find(p => p.name === chip.dataset.name));
+});
+function addMarker(p) {
+  markers[p.name] = L.circleMarker([p.lat, p.lng], pinStyle(p)).addTo(baseLayer)
+    .bindTooltip(`${p.name} (${p.cat})`, { direction: "top" })
+    .on("click", () => togglePin(p));
+  document.getElementById("placeNames").append(new Option(p.name));
+}
+
+// 직접 추가한 장소는 브라우저(localStorage)에 저장
+const CUSTOM_KEY = "jeju-custom-places";
+PLACES.push(...JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]"));
+PLACES.forEach(addMarker);
+
+function regionOf(lat, lng) {
+  if (lng >= 126.65) return "동부";
+  if (lat <= 33.32) return "남부";
+  if (lng <= 126.42) return "서부";
+  return lat >= 33.45 ? "시내" : "서부";
+}
+
+// 목록에 없으면 OSM(Nominatim)에서 제주 범위로 검색해서 추가
+async function searchPlace() {
+  const q = document.getElementById("pinSearch").value.trim();
+  if (!q) return;
+  const existing = PLACES.find(p => p.name === q || p.name.includes(q));
+  if (existing) {
+    if (!pinned.has(existing.name)) togglePin(existing);
+    document.getElementById("pinSearch").value = "";
+    return;
+  }
+  const resEl = document.getElementById("searchResults");
+  resEl.textContent = "검색 중…";
+  const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=ko" +
+    "&viewbox=126.08,33.62,127.00,33.10&bounded=1&q=" + encodeURIComponent(q));
+  const hits = await r.json();
+  if (!hits.length) { resEl.textContent = "제주 안에서 못 찾았어. 다른 이름으로 검색해봐."; return; }
+  resEl.innerHTML = hits.map((h, i) =>
+    `<div class="pinchip" style="display:block;margin:3px 0;cursor:pointer" data-i="${i}">➕ ${h.name || h.display_name.split(",")[0]}
+     <small style="color:#6b7a89">${h.display_name.split(",").slice(1, 3).join(",")}</small></div>`).join("");
+  resEl.onclick = e => {
+    const chip = e.target.closest("[data-i]");
+    if (!chip) return;
+    const h = hits[+chip.dataset.i];
+    const cat = document.getElementById("newCat").value;
+    const p = { name: h.name || h.display_name.split(",")[0], cat,
+      region: regionOf(+h.lat, +h.lon), lat: +h.lat, lng: +h.lon,
+      cost: { 식당: 15000, 카페: 8000, 관광: 0 }[cat], custom: true };
+    if (!PLACES.some(x => x.name === p.name)) {
+      PLACES.push(p); addMarker(p);
+      localStorage.setItem(CUSTOM_KEY, JSON.stringify(PLACES.filter(x => x.custom)));
+    }
+    togglePin(PLACES.find(x => x.name === p.name));
+    map.setView([p.lat, p.lng], 12);
+    resEl.innerHTML = ""; document.getElementById("pinSearch").value = "";
+  };
+}
+document.getElementById("searchBtn").onclick = searchPlace;
+document.getElementById("pinSearch").addEventListener("keydown", e => { if (e.key === "Enter") searchPlace(); });
+document.getElementById("pinSearch").addEventListener("change", () => {
+  const p = PLACES.find(p => p.name === document.getElementById("pinSearch").value);
+  if (p) { if (!pinned.has(p.name)) togglePin(p); document.getElementById("pinSearch").value = ""; }
 });
 
 const STAY = { 아침: 45, 점심: 60, 저녁: 60, 카페: 45, 관광: 75 };
@@ -243,14 +323,15 @@ async function render(region, route) {
   try { road = await roadRoute(route); }
   catch (e) { console.warn("OSRM 실패, 직선거리로 대체:", e); }
 
-  let totalKm = 0, clock = 8 * 60 + 30; // 08:30 숙소 출발
+  const [sh, sm] = document.getElementById("start").value.split(":").map(Number);
+  let totalKm = 0, clock = sh * 60 + sm; // 숙소 출발 시각
   route.forEach((p, i) => {
     const isMeal = p.cat === "식당" || p.cat === "카페";
     const isHotel = i === 0 || i === route.length - 1;
     const icon = L.divIcon({
       html: `<div style="width:26px;height:26px;border-radius:50%;background:${isMeal ? "#ff6b35" : "#1c2733"};
              color:#fff;text-align:center;line-height:26px;font-size:12px;font-weight:700;
-             border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${isHotel ? "🏨" : i}</div>`,
+             border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${isHotel ? (p.name.includes("공항") ? "✈️" : "🏨") : i}</div>`,
       className: "", iconSize: [26, 26], iconAnchor: [13, 13],
     });
     L.marker([p.lat, p.lng], { icon }).bindPopup(p.name).addTo(routeLayer);
@@ -276,8 +357,8 @@ async function render(region, route) {
       (isHotel ? "" : ` <small style="color:#6b7a89">· ${stayOf(p)}분</small>`);
     const div = document.createElement("div");
     div.className = "stop";
-    div.innerHTML = `<div class="no ${isMeal ? "meal" : ""}">${isHotel ? "🏨" : i}</div>
-      <div>${legHtml}<div><span class="time">${i === 0 ? "08:30" : hhmm(arrive)}</span> ${label}</div></div>`;
+    div.innerHTML = `<div class="no ${isMeal ? "meal" : ""}">${isHotel ? (p.name.includes("공항") ? "✈️" : "🏨") : i}</div>
+      <div>${legHtml}<div><span class="time">${hhmm(arrive)}</span> ${label}</div></div>`;
     stopsEl.appendChild(div);
   });
 
@@ -289,7 +370,7 @@ async function render(region, route) {
   }
   map.fitBounds(route.map(p => [p.lat, p.lng]), { padding: [40, 40] });
   document.getElementById("total").textContent =
-    `총 이동 ${totalKm.toFixed(0)}km · 숙소 복귀 ${hhmm(clock)}${road ? "" : " (직선거리 추정)"}`;
+    `총 이동 ${totalKm.toFixed(0)}km · ${route.at(-1).name.includes("공항") ? "공항 도착" : "숙소 복귀"} ${hhmm(clock)}${road ? "" : " (직선거리 추정)"}`;
 
   // 대략 비용: (식비·입장료·배삯)/인 × 인원 + 렌터카 + 유류비(≈160원/km) + 숙박 1박
   const people = +document.getElementById("people").value;
