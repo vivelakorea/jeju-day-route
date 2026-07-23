@@ -15,14 +15,17 @@
   button#roll:hover { background: #e85a26; }
   #wrap { display: flex; height: calc(100vh - 61px); }
   #map { flex: 1; }
-  #panel { width: 340px; overflow-y: auto; background: #fff; border-left: 1px solid #e3e8ee; padding: 16px; }
+  #panel { width: 360px; overflow-y: auto; background: #fff; border-left: 1px solid #e3e8ee; padding: 16px; }
   #panel h2 { font-size: 15px; margin-bottom: 10px; }
   .stop { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eef2f5; font-size: 14px; }
   .stop .no { flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1c2733; color: #fff; text-align: center; line-height: 24px; font-size: 12px; font-weight: 700; }
   .stop .no.meal { background: #ff6b35; }
+  .stop .time { font-weight: 700; }
+  .stop .role { color: #ff6b35; font-weight: 700; }
   .stop .leg { color: #6b7a89; font-size: 12px; }
   .total { margin-top: 12px; font-size: 14px; font-weight: 700; }
   .note { margin-top: 12px; font-size: 12px; color: #6b7a89; line-height: 1.5; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; background: #eef2f5; font-size: 12px; font-weight: 700; }
   @media (max-width: 700px) { #wrap { flex-direction: column; } #panel { width: 100%; height: 45%; } }
 </style>
 </head>
@@ -32,24 +35,35 @@
   <label>숙소:
     <select id="hotel"></select>
   </label>
+  <label>권역:
+    <select id="region">
+      <option value="random">랜덤</option>
+      <option value="동부">동부</option>
+      <option value="서부">서부</option>
+      <option value="남부">남부</option>
+    </select>
+  </label>
   <button id="roll">오늘의 코스 뽑기</button>
 </header>
 <div id="wrap">
   <div id="map"></div>
   <div id="panel">
-    <h2>코스</h2>
+    <h2>코스 <span class="badge" id="regionBadge"></span></h2>
     <div id="stops">숙소 고르고 버튼을 눌러봐.</div>
     <div class="total" id="total"></div>
-    <div class="note">숙소 후보는 전부 일통이반(용담 해안) 차로 10분 거리.
-    우도·마라도는 배 타야 해서 자동 코스에선 제외.
-    거리는 직선거리 ×1.35(도로 보정), 평균 40km/h 기준 추정치.</div>
+    <div class="note">08:30 출발 기준. 아침은 일통이반(아침 물회, 숙소 전부 차 5~10분),
+    하루에 한 권역(동부/서부/남부)만 돌고 점심은 권역 안에서, 저녁은 복귀 길 시내 식당.
+    체류시간: 식사 60분 · 카페 45분 · 관광 75분.
+    거리·시간은 OSRM 실제 도로 경로 기준 (경로선도 실제 도로).
+    우도·마라도는 배 타야 해서 자동 코스에선 제외.</div>
   </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// 숙소 후보: 일통이반(33.5107,126.4847) 근처 제주시내
+// 숙소 후보: 일통이반(33.5107,126.4847) 근처
 const HOTELS = [
+  { name: "아모렉스리조트 (도두, 서해안로 216)", lat: 33.5075, lng: 126.4703 },
   { name: "라마다 프라자 제주 (탑동)",        lat: 33.5155, lng: 126.5209 },
   { name: "오션스위츠 제주 (탑동)",           lat: 33.5165, lng: 126.5250 },
   { name: "메종 글래드 제주 (연동)",          lat: 33.4886, lng: 126.4923 },
@@ -57,55 +71,56 @@ const HOTELS = [
 ];
 
 // 공유 목록 장소들. 좌표는 근사치 — 실제 내비는 카카오내비로.
+// region: 동부/서부/남부/시내. 시내는 아침·저녁 식당 풀로만 사용.
 const PLACES = [
   // 식당
-  { name: "미영이네 (고등어회)",      cat: "식당", lat: 33.2165, lng: 126.2500 },
-  { name: "갯동산 평대바당국수",      cat: "식당", lat: 33.5386, lng: 126.8410 },
-  { name: "돈사돈 본점 (흑돼지)",     cat: "식당", lat: 33.4830, lng: 126.4740 },
-  { name: "이재모피자",               cat: "식당", lat: 33.5127, lng: 126.5215 },
-  { name: "키친아루요 (해물 일식)",   cat: "식당", lat: 33.4650, lng: 126.4100 },
-  { name: "일통이반 (해산물)",        cat: "식당", lat: 33.5107, lng: 126.4847 },
-  { name: "제주 호커센터 (칠리크랩)", cat: "식당", lat: 33.5050, lng: 126.4300 },
-  { name: "맘마리아 (파스타)",        cat: "식당", lat: 33.4900, lng: 126.4100 },
-  { name: "세화 피크닉 (피자)",       cat: "식당", lat: 33.5250, lng: 126.8600 },
-  { name: "오설록 티 뮤지엄",         cat: "식당", lat: 33.3060, lng: 126.2890 },
+  { name: "미영이네 (고등어회)",      cat: "식당", region: "남부", lat: 33.2165, lng: 126.2500 },
+  { name: "갯동산 평대바당국수",      cat: "식당", region: "동부", lat: 33.5386, lng: 126.8410 },
+  { name: "돈사돈 본점 (흑돼지)",     cat: "식당", region: "시내", lat: 33.4830, lng: 126.4740 },
+  { name: "이재모피자",               cat: "식당", region: "시내", lat: 33.5127, lng: 126.5215 },
+  { name: "키친아루요 (해물 일식)",   cat: "식당", region: "서부", lat: 33.4650, lng: 126.4100 },
+  { name: "일통이반 (아침 물회)",     cat: "식당", region: "시내", lat: 33.5107, lng: 126.4847, breakfast: true },
+  { name: "제주 호커센터 (칠리크랩)", cat: "식당", region: "시내", lat: 33.5050, lng: 126.4300 },
+  { name: "맘마리아 (파스타)",        cat: "식당", region: "시내", lat: 33.4900, lng: 126.4100 },
+  { name: "세화 피크닉 (피자)",       cat: "식당", region: "동부", lat: 33.5250, lng: 126.8600 },
+  { name: "오설록 티 뮤지엄",         cat: "식당", region: "남부", lat: 33.3060, lng: 126.2890 },
   // 카페/술집
-  { name: "카페청굴물 (김녕)",        cat: "카페", lat: 33.5580, lng: 126.7580 },
-  { name: "우유부단 (이시돌 목장)",   cat: "카페", lat: 33.3618, lng: 126.3222 },
-  { name: "더클리프 (중문)",          cat: "카페", lat: 33.2450, lng: 126.4090 },
-  { name: "카페카노푸스 (망고빙수)",  cat: "카페", lat: 33.2445, lng: 126.4040 },
-  { name: "내도음악상가 (와인바)",    cat: "카페", lat: 33.4920, lng: 126.4320 },
-  { name: "맥파이 브루어리",          cat: "카페", lat: 33.4940, lng: 126.5850 },
+  { name: "카페청굴물 (김녕)",        cat: "카페", region: "동부", lat: 33.5580, lng: 126.7580 },
+  { name: "우유부단 (이시돌 목장)",   cat: "카페", region: "서부", lat: 33.3618, lng: 126.3222 },
+  { name: "더클리프 (중문)",          cat: "카페", region: "남부", lat: 33.2450, lng: 126.4090 },
+  { name: "카페카노푸스 (망고빙수)",  cat: "카페", region: "남부", lat: 33.2445, lng: 126.4040 },
+  { name: "내도음악상가 (와인바)",    cat: "카페", region: "시내", lat: 33.4920, lng: 126.4320 },
+  { name: "맥파이 브루어리",          cat: "카페", region: "시내", lat: 33.4940, lng: 126.5850 },
   // 관광
-  { name: "도두봉",                   cat: "관광", lat: 33.5080, lng: 126.4670 },
-  { name: "이호테우해변",             cat: "관광", lat: 33.4970, lng: 126.4530 },
-  { name: "서우봉 (함덕)",            cat: "관광", lat: 33.5430, lng: 126.6730 },
-  { name: "사려니숲길",               cat: "관광", lat: 33.4180, lng: 126.6850 },
-  { name: "비자림",                   cat: "관광", lat: 33.4890, lng: 126.8100 },
-  { name: "행원해변 (코난해변)",      cat: "관광", lat: 33.5560, lng: 126.8080 },
-  { name: "오저여",                   cat: "관광", lat: 33.5450, lng: 126.8270 },
-  { name: "섭지코지",                 cat: "관광", lat: 33.4240, lng: 126.9310 },
-  { name: "성산포 성당",              cat: "관광", lat: 33.4630, lng: 126.9350 },
-  { name: "카멜리아 힐",              cat: "관광", lat: 33.2890, lng: 126.3680 },
-  { name: "중문향토오일시장",         cat: "관광", lat: 33.2500, lng: 126.4190 },
-  { name: "중문해변",                 cat: "관광", lat: 33.2450, lng: 126.4120 },
-  { name: "애월 (한담해변)",          cat: "관광", lat: 33.4640, lng: 126.3100 },
-  { name: "금오름",                   cat: "관광", lat: 33.3520, lng: 126.3050 },
-  { name: "성 이시돌 피정의집",       cat: "관광", lat: 33.3600, lng: 126.3250 },
-  { name: "9.81 파크",                cat: "관광", lat: 33.4280, lng: 126.3410 },
-  { name: "송악산",                   cat: "관광", lat: 33.2000, lng: 126.2900 },
+  { name: "도두봉",                   cat: "관광", region: "시내", lat: 33.5080, lng: 126.4670 },
+  { name: "이호테우해변",             cat: "관광", region: "시내", lat: 33.4970, lng: 126.4530 },
+  { name: "서우봉 (함덕)",            cat: "관광", region: "동부", lat: 33.5430, lng: 126.6730 },
+  { name: "사려니숲길",               cat: "관광", region: "동부", lat: 33.4180, lng: 126.6850 },
+  { name: "비자림",                   cat: "관광", region: "동부", lat: 33.4890, lng: 126.8100 },
+  { name: "행원해변 (코난해변)",      cat: "관광", region: "동부", lat: 33.5560, lng: 126.8080 },
+  { name: "오저여",                   cat: "관광", region: "동부", lat: 33.5450, lng: 126.8270 },
+  { name: "섭지코지",                 cat: "관광", region: "동부", lat: 33.4240, lng: 126.9310 },
+  { name: "성산포 성당",              cat: "관광", region: "동부", lat: 33.4630, lng: 126.9350 },
+  { name: "카멜리아 힐",              cat: "관광", region: "남부", lat: 33.2890, lng: 126.3680 },
+  { name: "중문향토오일시장",         cat: "관광", region: "남부", lat: 33.2500, lng: 126.4190 },
+  { name: "중문해변",                 cat: "관광", region: "남부", lat: 33.2450, lng: 126.4120 },
+  { name: "애월 (한담해변)",          cat: "관광", region: "서부", lat: 33.4640, lng: 126.3100 },
+  { name: "금오름",                   cat: "관광", region: "서부", lat: 33.3520, lng: 126.3050 },
+  { name: "성 이시돌 피정의집",       cat: "관광", region: "서부", lat: 33.3600, lng: 126.3250 },
+  { name: "9.81 파크",                cat: "관광", region: "서부", lat: 33.4280, lng: 126.3410 },
+  { name: "송악산",                   cat: "관광", region: "남부", lat: 33.2000, lng: 126.2900 },
 ];
 
 const R = 6371;
-function dist(a, b) { // haversine, km
+function dist(a, b) { // haversine, km — 정렬용
   const t = Math.PI / 180;
   const h = Math.sin((b.lat - a.lat) * t / 2) ** 2 +
             Math.cos(a.lat * t) * Math.cos(b.lat * t) * Math.sin((b.lng - a.lng) * t / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-// ponytail: A*는 도로망 그래프가 필요해서 스킵 — 직선거리 탐욕(최근접 이웃) 정렬.
-// 실제 도로 경로가 필요해지면 OSRM 데모 API를 붙이는 게 업그레이드 경로.
+// ponytail: 방문 순서는 직선거리 최근접 이웃 정렬 (지점 7~8개엔 충분).
+// 실제 도로 거리/경로는 아래 OSRM이 계산.
 function nearestOrder(start, pts) {
   const rest = [...pts], order = [];
   let cur = start;
@@ -123,24 +138,39 @@ function sample(arr, n) {
   return out;
 }
 
-function rollCourse(hotel) {
-  const tour = PLACES.filter(p => p.cat === "관광");
-  const food = PLACES.filter(p => p.cat === "식당");
-  const cafe = PLACES.filter(p => p.cat === "카페");
+// 아침(시내) → 오전 관광 2 → 점심(권역) → 오후 관광 1 + 카페 → 저녁(시내) → 숙소.
+// 순서 자체가 시간대를 보장하니 별도 스케줄링 불필요.
+function rollCourse(hotel, regionPick) {
+  const region = regionPick === "random" ? sample(["동부", "서부", "남부"], 1)[0] : regionPick;
+  const inR = c => PLACES.filter(p => p.region === region && p.cat === c);
 
-  const spots = sample(tour, 4);
-  const [lunch, dinner] = sample(food, 2);
-  const [midCafe] = sample(cafe, 1);
+  const breakfast = PLACES.find(p => p.breakfast);
+  const spots = sample(inR("관광"), 3);
+  const [cafe] = sample(inR("카페"), 1);
+  const [lunch] = sample(inR("식당"), 1);
+  const [dinner] = sample(PLACES.filter(p => p.region === "시내" && p.cat === "식당" && !p.breakfast), 1);
 
-  const morning = nearestOrder(hotel, spots.slice(0, 2));
-  const afternoon = nearestOrder(lunch, spots.slice(2));
-  return [hotel,
-          ...morning,
-          lunch,
-          ...afternoon,
-          midCafe,
-          dinner,
-          hotel];
+  const morning = nearestOrder(breakfast, spots.slice(0, 2));
+  const afternoon = nearestOrder(lunch, [...spots.slice(2), cafe].filter(Boolean));
+
+  const route = [hotel,
+    { ...breakfast, role: "아침" },
+    ...morning,
+    { ...lunch, role: "점심" },
+    ...afternoon,
+    { ...dinner, role: "저녁" },
+    hotel];
+  return { region, route };
+}
+
+// --- OSRM: 실제 도로 경로/거리/시간 ---
+async function roadRoute(route) {
+  const coords = route.map(p => `${p.lng},${p.lat}`).join(";");
+  const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`);
+  if (!res.ok) throw new Error("OSRM " + res.status);
+  const data = await res.json();
+  if (data.code !== "Ok") throw new Error(data.code);
+  return data.routes[0]; // {geometry, legs[{distance(m), duration(s)}]}
 }
 
 // --- UI ---
@@ -152,44 +182,70 @@ let layer = L.layerGroup().addTo(map);
 const sel = document.getElementById("hotel");
 HOTELS.forEach((h, i) => sel.add(new Option(h.name, i)));
 
-function render(route) {
+const STAY = { 아침: 45, 점심: 60, 저녁: 60, 카페: 45, 관광: 75 };
+const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m) % 60).padStart(2, "0")}`;
+
+async function render(region, route) {
   layer.clearLayers();
+  document.getElementById("regionBadge").textContent = region;
   const stopsEl = document.getElementById("stops");
   stopsEl.innerHTML = "";
-  let totalKm = 0;
 
+  let road = null;
+  try { road = await roadRoute(route); }
+  catch (e) { console.warn("OSRM 실패, 직선거리로 대체:", e); }
+
+  let totalKm = 0, clock = 8 * 60 + 30; // 08:30 숙소 출발
   route.forEach((p, i) => {
     const isMeal = p.cat === "식당" || p.cat === "카페";
+    const isHotel = i === 0 || i === route.length - 1;
     const icon = L.divIcon({
       html: `<div style="width:26px;height:26px;border-radius:50%;background:${isMeal ? "#ff6b35" : "#1c2733"};
              color:#fff;text-align:center;line-height:26px;font-size:12px;font-weight:700;
-             border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${i === 0 || i === route.length - 1 ? "🏨" : i}</div>`,
+             border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${isHotel ? "🏨" : i}</div>`,
       className: "", iconSize: [26, 26], iconAnchor: [13, 13],
     });
     L.marker([p.lat, p.lng], { icon }).bindPopup(p.name).addTo(layer);
 
     let legHtml = "";
     if (i > 0) {
-      const km = dist(route[i - 1], p) * 1.35;
-      totalKm += km;
-      legHtml = `<div class="leg">↳ 이동 ${km.toFixed(1)}km · 약 ${Math.round(km / 40 * 60)}분</div>`;
+      let km, min;
+      if (road) {
+        km = road.legs[i - 1].distance / 1000;
+        min = road.legs[i - 1].duration / 60 * 1.2; // OSRM이 좀 낙관적이라 보정
+      } else {
+        km = dist(route[i - 1], p) * 1.35;
+        min = km / 40 * 60;
+      }
+      totalKm += km; clock += min;
+      legHtml = `<div class="leg">↳ 🚗 ${km.toFixed(1)}km · 약 ${Math.round(min)}분</div>`;
     }
+    const arrive = clock;
+    if (!isHotel) clock += STAY[p.role || p.cat] || 60;
+
+    const label = `${p.role ? `<span class="role">${p.role}</span> · ` : ""}${p.name}${!p.role && p.cat ? ` <small>(${p.cat})</small>` : ""}`;
     const div = document.createElement("div");
     div.className = "stop";
-    div.innerHTML = `<div class="no ${isMeal ? "meal" : ""}">${i === 0 || i === route.length - 1 ? "🏨" : i}</div>
-      <div><div>${p.name}${p.cat ? ` <small>(${p.cat})</small>` : ""}</div>${legHtml}</div>`;
+    div.innerHTML = `<div class="no ${isMeal ? "meal" : ""}">${isHotel ? "🏨" : i}</div>
+      <div>${legHtml}<div><span class="time">${i === 0 ? "08:30" : hhmm(arrive)}</span> ${label}</div></div>`;
     stopsEl.appendChild(div);
   });
 
-  L.polyline(route.map(p => [p.lat, p.lng]),
-    { color: "#ff6b35", weight: 3, dashArray: "6 8" }).addTo(layer);
+  if (road) {
+    L.geoJSON(road.geometry, { style: { color: "#ff6b35", weight: 4, opacity: .85 } }).addTo(layer);
+  } else {
+    L.polyline(route.map(p => [p.lat, p.lng]),
+      { color: "#ff6b35", weight: 3, dashArray: "6 8" }).addTo(layer);
+  }
   map.fitBounds(route.map(p => [p.lat, p.lng]), { padding: [40, 40] });
   document.getElementById("total").textContent =
-    `총 이동 ${totalKm.toFixed(0)}km · 운전 약 ${(totalKm / 40).toFixed(1)}시간`;
+    `총 이동 ${totalKm.toFixed(0)}km · 숙소 복귀 ${hhmm(clock)}${road ? "" : " (직선거리 추정)"}`;
 }
 
-document.getElementById("roll").onclick = () =>
-  render(rollCourse(HOTELS[+sel.value]));
+document.getElementById("roll").onclick = () => {
+  const { region, route } = rollCourse(HOTELS[+sel.value], document.getElementById("region").value);
+  render(region, route);
+};
 </script>
 </body>
 </html>
