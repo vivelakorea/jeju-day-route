@@ -192,11 +192,11 @@ const BASE_HOTELS = [
 // region: 동부/서부/남부/시내(아침·저녁 식당 풀). 섬은 선착장 좌표, stay는 배 왕복 포함.
 const BASE_PLACES = [
   { name: "미영이네 (고등어회)",      cat: "식당", region: "남부", lat: 33.2165, lng: 126.2500, cost: 30000 },
-  { name: "갯동산 평대바당국수",      cat: "식당", region: "동부", lat: 33.5386, lng: 126.8410, cost: 12000 },
+  { name: "갯동산 평대바당국수",      cat: "식당", region: "동부", lat: 33.5386, lng: 126.8410, cost: 12000, bfOk: true },
   { name: "돈사돈 본점 (흑돼지)",     cat: "식당", region: "시내", lat: 33.4830, lng: 126.4740, cost: 25000 },
   { name: "이재모피자",               cat: "식당", region: "시내", lat: 33.5127, lng: 126.5215, cost: 15000 },
   { name: "키친아루요 (해물 일식)",   cat: "식당", region: "서부", lat: 33.4650, lng: 126.4100, cost: 20000 },
-  { name: "일통이반 (아침 물회)",     cat: "식당", region: "시내", lat: 33.5107, lng: 126.4847, cost: 15000, breakfast: true },
+  { name: "일통이반 (아침 물회)",     cat: "식당", region: "시내", lat: 33.5107, lng: 126.4847, cost: 15000, breakfast: true, bfOk: true },
   { name: "제주 호커센터 (칠리크랩)", cat: "식당", region: "시내", lat: 33.5050, lng: 126.4300, cost: 25000 },
   { name: "맘마리아 (파스타)",        cat: "식당", region: "시내", lat: 33.4900, lng: 126.4100, cost: 18000 },
   { name: "세화 피크닉 (피자)",       cat: "식당", region: "동부", lat: 33.5250, lng: 126.8600, cost: 15000 },
@@ -268,7 +268,7 @@ function cloudSave() {
         s === null ? localStorage.removeItem(k) : localStorage.setItem(k, s);
       }
     });
-    if (changed) location.reload(); // 원격과 같아진 뒤엔 다시 안 돎
+    if (changed && !window.rolled) location.reload(); // 코스 뽑는 중이면 리로드로 화면 안 날림
   } catch {}
 })();
 
@@ -335,16 +335,18 @@ function rollCourse(hotel, regionPick, pinned, nOverride) {
 
   const bSel = document.getElementById("breakfastSel").value;
   const cityFood = PLACES.filter(p => p.region === "시내" && p.cat === "식당");
+  // 랜덤은 아침 되는 곳(bfOk: 물회·국수류)만 — 시내 또는 그날 권역
+  const bfPool = PLACES.filter(p => p.cat === "식당" && p.bfOk && (p.region === "시내" || p.region === region));
   const breakfast = bSel === "skip" ? null
-    : bSel === "random" ? sample(cityFood, 1)[0]
-    : PLACES.find(p => p.id === bSel) || sample(cityFood, 1)[0];
+    : bSel === "random" ? sample(bfPool, 1)[0] || PLACES.find(p => p.breakfast)
+    : PLACES.find(p => p.id === bSel) || PLACES.find(p => p.breakfast);
   const nSpots = nOverride ?? +document.getElementById("nspots").value;
   const pinSpots = pin.filter(p => p.cat === "관광");
   const spots = [...pinSpots, ...sample(inR("관광"), Math.max(0, nSpots - pinSpots.length))];
   const pinCafes = pin.filter(p => p.cat === "카페" && p.region !== "시내");
   const cafes = pinCafes.length ? pinCafes : sample(inR("카페"), 1);
-  const pinFood = pin.filter(p => p.cat === "식당" && p.region !== "시내" && !p.breakfast);
-  const lunch = pinFood[0] || sample(inR("식당"), 1)[0];
+  const pinFood = pin.filter(p => p.cat === "식당" && p.region !== "시내" && p.id !== breakfast?.id);
+  const lunch = pinFood[0] || sample(inR("식당").filter(p => p.id !== breakfast?.id), 1)[0];
   const dinner = pin.find(p => p.cat === "식당" && p.region === "시내" && p.id !== breakfast?.id)
     || sample(cityFood.filter(p => p.id !== breakfast?.id), 1)[0];
   const cityEvening = pin.filter(p => p.cat === "카페" && p.region === "시내"); // 맥파이 등: 저녁 전에
@@ -672,6 +674,7 @@ document.getElementById("roomNew").onclick = () => {
 };
 
 document.getElementById("roll").onclick = () => {
+  window.rolled = true;
   // 끝시간 안에 들어올 때까지 재추첨, 안 되면 관광지 수를 줄여가며 시도
   const limit = timeVal("end");
   const wanted = +document.getElementById("nspots").value;
