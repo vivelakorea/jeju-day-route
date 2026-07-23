@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>제주 하루 코스 뽑기</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: "Pretendard", "Malgun Gothic", sans-serif; background: #f4f6f8; color: #1c2733; }
+  header { padding: 16px 20px; background: #fff; border-bottom: 1px solid #e3e8ee; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  header h1 { font-size: 18px; margin-right: auto; }
+  select, button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #cfd8e0; background: #fff; }
+  button#roll { background: #ff6b35; color: #fff; border: none; cursor: pointer; font-weight: 700; }
+  button#roll:hover { background: #e85a26; }
+  #wrap { display: flex; height: calc(100vh - 61px); }
+  #map { flex: 1; }
+  #panel { width: 340px; overflow-y: auto; background: #fff; border-left: 1px solid #e3e8ee; padding: 16px; }
+  #panel h2 { font-size: 15px; margin-bottom: 10px; }
+  .stop { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eef2f5; font-size: 14px; }
+  .stop .no { flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1c2733; color: #fff; text-align: center; line-height: 24px; font-size: 12px; font-weight: 700; }
+  .stop .no.meal { background: #ff6b35; }
+  .stop .leg { color: #6b7a89; font-size: 12px; }
+  .total { margin-top: 12px; font-size: 14px; font-weight: 700; }
+  .note { margin-top: 12px; font-size: 12px; color: #6b7a89; line-height: 1.5; }
+  @media (max-width: 700px) { #wrap { flex-direction: column; } #panel { width: 100%; height: 45%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>제주 하루 코스 뽑기 🎲</h1>
+  <label>숙소:
+    <select id="hotel"></select>
+  </label>
+  <button id="roll">오늘의 코스 뽑기</button>
+</header>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="panel">
+    <h2>코스</h2>
+    <div id="stops">숙소 고르고 버튼을 눌러봐.</div>
+    <div class="total" id="total"></div>
+    <div class="note">숙소 후보는 전부 일통이반(용담 해안) 차로 10분 거리.
+    우도·마라도는 배 타야 해서 자동 코스에선 제외.
+    거리는 직선거리 ×1.35(도로 보정), 평균 40km/h 기준 추정치.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// 숙소 후보: 일통이반(33.5107,126.4847) 근처 제주시내
+const HOTELS = [
+  { name: "라마다 프라자 제주 (탑동)",        lat: 33.5155, lng: 126.5209 },
+  { name: "오션스위츠 제주 (탑동)",           lat: 33.5165, lng: 126.5250 },
+  { name: "메종 글래드 제주 (연동)",          lat: 33.4886, lng: 126.4923 },
+  { name: "그랜드 하얏트 제주 (노형)",        lat: 33.4849, lng: 126.4913 },
+];
+
+// 공유 목록 장소들. 좌표는 근사치 — 실제 내비는 카카오내비로.
+const PLACES = [
+  // 식당
+  { name: "미영이네 (고등어회)",      cat: "식당", lat: 33.2165, lng: 126.2500 },
+  { name: "갯동산 평대바당국수",      cat: "식당", lat: 33.5386, lng: 126.8410 },
+  { name: "돈사돈 본점 (흑돼지)",     cat: "식당", lat: 33.4830, lng: 126.4740 },
+  { name: "이재모피자",               cat: "식당", lat: 33.5127, lng: 126.5215 },
+  { name: "키친아루요 (해물 일식)",   cat: "식당", lat: 33.4650, lng: 126.4100 },
+  { name: "일통이반 (해산물)",        cat: "식당", lat: 33.5107, lng: 126.4847 },
+  { name: "제주 호커센터 (칠리크랩)", cat: "식당", lat: 33.5050, lng: 126.4300 },
+  { name: "맘마리아 (파스타)",        cat: "식당", lat: 33.4900, lng: 126.4100 },
+  { name: "세화 피크닉 (피자)",       cat: "식당", lat: 33.5250, lng: 126.8600 },
+  { name: "오설록 티 뮤지엄",         cat: "식당", lat: 33.3060, lng: 126.2890 },
+  // 카페/술집
+  { name: "카페청굴물 (김녕)",        cat: "카페", lat: 33.5580, lng: 126.7580 },
+  { name: "우유부단 (이시돌 목장)",   cat: "카페", lat: 33.3618, lng: 126.3222 },
+  { name: "더클리프 (중문)",          cat: "카페", lat: 33.2450, lng: 126.4090 },
+  { name: "카페카노푸스 (망고빙수)",  cat: "카페", lat: 33.2445, lng: 126.4040 },
+  { name: "내도음악상가 (와인바)",    cat: "카페", lat: 33.4920, lng: 126.4320 },
+  { name: "맥파이 브루어리",          cat: "카페", lat: 33.4940, lng: 126.5850 },
+  // 관광
+  { name: "도두봉",                   cat: "관광", lat: 33.5080, lng: 126.4670 },
+  { name: "이호테우해변",             cat: "관광", lat: 33.4970, lng: 126.4530 },
+  { name: "서우봉 (함덕)",            cat: "관광", lat: 33.5430, lng: 126.6730 },
+  { name: "사려니숲길",               cat: "관광", lat: 33.4180, lng: 126.6850 },
+  { name: "비자림",                   cat: "관광", lat: 33.4890, lng: 126.8100 },
+  { name: "행원해변 (코난해변)",      cat: "관광", lat: 33.5560, lng: 126.8080 },
+  { name: "오저여",                   cat: "관광", lat: 33.5450, lng: 126.8270 },
+  { name: "섭지코지",                 cat: "관광", lat: 33.4240, lng: 126.9310 },
+  { name: "성산포 성당",              cat: "관광", lat: 33.4630, lng: 126.9350 },
+  { name: "카멜리아 힐",              cat: "관광", lat: 33.2890, lng: 126.3680 },
+  { name: "중문향토오일시장",         cat: "관광", lat: 33.2500, lng: 126.4190 },
+  { name: "중문해변",                 cat: "관광", lat: 33.2450, lng: 126.4120 },
+  { name: "애월 (한담해변)",          cat: "관광", lat: 33.4640, lng: 126.3100 },
+  { name: "금오름",                   cat: "관광", lat: 33.3520, lng: 126.3050 },
+  { name: "성 이시돌 피정의집",       cat: "관광", lat: 33.3600, lng: 126.3250 },
+  { name: "9.81 파크",                cat: "관광", lat: 33.4280, lng: 126.3410 },
+  { name: "송악산",                   cat: "관광", lat: 33.2000, lng: 126.2900 },
+];
+
+const R = 6371;
+function dist(a, b) { // haversine, km
+  const t = Math.PI / 180;
+  const h = Math.sin((b.lat - a.lat) * t / 2) ** 2 +
+            Math.cos(a.lat * t) * Math.cos(b.lat * t) * Math.sin((b.lng - a.lng) * t / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// ponytail: A*는 도로망 그래프가 필요해서 스킵 — 직선거리 탐욕(최근접 이웃) 정렬.
+// 실제 도로 경로가 필요해지면 OSRM 데모 API를 붙이는 게 업그레이드 경로.
+function nearestOrder(start, pts) {
+  const rest = [...pts], order = [];
+  let cur = start;
+  while (rest.length) {
+    rest.sort((x, y) => dist(cur, x) - dist(cur, y));
+    cur = rest.shift();
+    order.push(cur);
+  }
+  return order;
+}
+
+function sample(arr, n) {
+  const pool = [...arr], out = [];
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  return out;
+}
+
+function rollCourse(hotel) {
+  const tour = PLACES.filter(p => p.cat === "관광");
+  const food = PLACES.filter(p => p.cat === "식당");
+  const cafe = PLACES.filter(p => p.cat === "카페");
+
+  const spots = sample(tour, 4);
+  const [lunch, dinner] = sample(food, 2);
+  const [midCafe] = sample(cafe, 1);
+
+  const morning = nearestOrder(hotel, spots.slice(0, 2));
+  const afternoon = nearestOrder(lunch, spots.slice(2));
+  return [hotel,
+          ...morning,
+          lunch,
+          ...afternoon,
+          midCafe,
+          dinner,
+          hotel];
+}
+
+// --- UI ---
+const map = L.map("map").setView([33.38, 126.55], 10);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { attribution: "&copy; OpenStreetMap" }).addTo(map);
+let layer = L.layerGroup().addTo(map);
+
+const sel = document.getElementById("hotel");
+HOTELS.forEach((h, i) => sel.add(new Option(h.name, i)));
+
+function render(route) {
+  layer.clearLayers();
+  const stopsEl = document.getElementById("stops");
+  stopsEl.innerHTML = "";
+  let totalKm = 0;
+
+  route.forEach((p, i) => {
+    const isMeal = p.cat === "식당" || p.cat === "카페";
+    const icon = L.divIcon({
+      html: `<div style="width:26px;height:26px;border-radius:50%;background:${isMeal ? "#ff6b35" : "#1c2733"};
+             color:#fff;text-align:center;line-height:26px;font-size:12px;font-weight:700;
+             border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${i === 0 || i === route.length - 1 ? "🏨" : i}</div>`,
+      className: "", iconSize: [26, 26], iconAnchor: [13, 13],
+    });
+    L.marker([p.lat, p.lng], { icon }).bindPopup(p.name).addTo(layer);
+
+    let legHtml = "";
+    if (i > 0) {
+      const km = dist(route[i - 1], p) * 1.35;
+      totalKm += km;
+      legHtml = `<div class="leg">↳ 이동 ${km.toFixed(1)}km · 약 ${Math.round(km / 40 * 60)}분</div>`;
+    }
+    const div = document.createElement("div");
+    div.className = "stop";
+    div.innerHTML = `<div class="no ${isMeal ? "meal" : ""}">${i === 0 || i === route.length - 1 ? "🏨" : i}</div>
+      <div><div>${p.name}${p.cat ? ` <small>(${p.cat})</small>` : ""}</div>${legHtml}</div>`;
+    stopsEl.appendChild(div);
+  });
+
+  L.polyline(route.map(p => [p.lat, p.lng]),
+    { color: "#ff6b35", weight: 3, dashArray: "6 8" }).addTo(layer);
+  map.fitBounds(route.map(p => [p.lat, p.lng]), { padding: [40, 40] });
+  document.getElementById("total").textContent =
+    `총 이동 ${totalKm.toFixed(0)}km · 운전 약 ${(totalKm / 40).toFixed(1)}시간`;
+}
+
+document.getElementById("roll").onclick = () =>
+  render(rollCourse(HOTELS[+sel.value]));
+</script>
+</body>
+</html>
