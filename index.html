@@ -138,6 +138,12 @@
         <label>끝 시각 <input type="time" id="end" value="21:00"></label>
         <label>시작점 <select id="startPt"><option>숙소</option><option>공항</option></select></label>
         <label>끝점 <select id="endPt"><option>숙소</option><option>공항</option></select></label>
+        <label class="wide">아침 식당
+          <select id="breakfastSel">
+            <option value="random">랜덤 (시내 식당 중에서)</option>
+            <option value="skip">건너뛰기 (숙소 조식 등)</option>
+          </select>
+        </label>
         <label class="wide">공유 방 코드 — 코드를 아는 사람끼리 장소 목록이 공유돼요
           <span style="display:flex;gap:6px">
             <input id="roomCode" placeholder="비우면 이 기기에만 저장" style="flex:1;min-width:0">
@@ -159,7 +165,7 @@
     <div id="stops">지도의 점을 누르면 📌 코스에 무조건 포함되고, 꾹 누르면(PC: 우클릭) 수정·삭제할 수 있어요. 준비되면 위의 주황 버튼!</div>
     <div class="total" id="total"></div>
     <div id="cost" hidden></div>
-    <div class="note">출발 시각·시작/끝점은 위에서 선택. 아침은 일통이반(아침 물회, 숙소 전부 차 5~10분),
+    <div class="note">출발 시각·시작/끝점·아침 식당은 설정에서 선택 (아침 기본값은 일통이반 — 아침 물회로 유명하고 숙소들에서 차 5~10분).
     하루에 한 권역(동부/서부/남부)만 돌고 점심은 권역 안, 저녁은 복귀 길 시내 식당.
     📌 찍은 장소는 권역과 무관하게 무조건 코스에 들어감 (권역도 📌 다수결로 따라감).
     체류(밥·구경 시간): 식사 60분 · 카페 45분 · 관광 75분 · 우도 3시간30분 · 마라도 2시간30분(배 왕복 포함).
@@ -327,7 +333,11 @@ function rollCourse(hotel, regionPick, pinned, nOverride) {
     : sample(["동부", "서부", "남부"], 1)[0];
   const inR = c => PLACES.filter(p => p.region === region && p.cat === c && !pinned.has(p.id));
 
-  const breakfast = PLACES.find(p => p.breakfast) || PLACES.find(p => p.region === "시내" && p.cat === "식당");
+  const bSel = document.getElementById("breakfastSel").value;
+  const cityFood = PLACES.filter(p => p.region === "시내" && p.cat === "식당");
+  const breakfast = bSel === "skip" ? null
+    : bSel === "random" ? sample(cityFood, 1)[0]
+    : PLACES.find(p => p.id === bSel) || sample(cityFood, 1)[0];
   const nSpots = nOverride ?? +document.getElementById("nspots").value;
   const pinSpots = pin.filter(p => p.cat === "관광");
   const spots = [...pinSpots, ...sample(inR("관광"), Math.max(0, nSpots - pinSpots.length))];
@@ -335,8 +345,8 @@ function rollCourse(hotel, regionPick, pinned, nOverride) {
   const cafes = pinCafes.length ? pinCafes : sample(inR("카페"), 1);
   const pinFood = pin.filter(p => p.cat === "식당" && p.region !== "시내" && !p.breakfast);
   const lunch = pinFood[0] || sample(inR("식당"), 1)[0];
-  const dinner = pin.find(p => p.cat === "식당" && p.region === "시내" && !p.breakfast)
-    || sample(PLACES.filter(p => p.region === "시내" && p.cat === "식당" && !p.breakfast), 1)[0];
+  const dinner = pin.find(p => p.cat === "식당" && p.region === "시내" && p.id !== breakfast?.id)
+    || sample(cityFood.filter(p => p.id !== breakfast?.id), 1)[0];
   const cityEvening = pin.filter(p => p.cat === "카페" && p.region === "시내"); // 맥파이 등: 저녁 전에
 
   const half = Math.ceil(spots.length / 2);
@@ -642,6 +652,11 @@ function estimateEnd(route) {
   });
   return clock;
 }
+
+// 아침 식당 선택지 채우기 (기본: 일통이반 — 아침 물회로 유명해서)
+const bSelEl = document.getElementById("breakfastSel");
+PLACES.filter(p => p.region === "시내" && p.cat === "식당").forEach(p => bSelEl.add(new Option(p.name, p.id)));
+if (PLACES.some(p => p.breakfast)) bSelEl.value = PLACES.find(p => p.breakfast).id;
 
 // 공유 방 UI
 const roomInput = document.getElementById("roomCode");
